@@ -1,0 +1,16 @@
+name:
+  type: text
+
+age:
+  type: int
+  #bound: 0..124
+
+gender:
+  type: category
+  categories:
+    - man
+    - woman
+    - other
+
+single:
+  type: bool

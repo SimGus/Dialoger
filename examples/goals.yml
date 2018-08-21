@@ -1,0 +1,19 @@
+greet:
+  trigger-intent: null
+  slots-to-fill: []
+  actions:
+    ending:
+      certain: utter_greet
+
+who-are-you:
+  trigger-intent: greet
+  slots-to-fill:
+    - name
+    - age
+  actions:
+    ending:
+      certain: change_goal(play-game)
+
+play-game:
+  actions:
+    ending:

@@ -1,0 +1,15 @@
+start
+  initial goal: greet
+    * greet
+    expecting greet
+    - greet
+    (
+      confident: move{who-are-you}
+      doubtful: move{who-are-you}
+      misunderstood: utter_repeat
+    )
+  goal: who-are-you{name, age}
+    *who are you
+    expecting introduce{name &/ age}
+    - introduce
+cf. mes notes ;)
