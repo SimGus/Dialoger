@@ -2,18 +2,47 @@ greet:
   trigger-intent: null
   slots-to-fill: []
   actions:
-    ending:
-      certain: utter_greet
+  - utter_greet
 
 who-are-you:
   trigger-intent: greet
   slots-to-fill:
-    - name
-    - age
+  - name
+  - age
   actions:
-    ending:
-      certain: change_goal(play-game)
+  - conditions:
+    - age: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]  # TODO: introduce a range syntax
+    actions: change_goal(play-game)
+  - conditions:
+    - age: []  # all the other values
+    actions: change_goal(ask-gender)
 
 play-game:
   actions:
-    ending:
+  - utter_lets_play
+
+ask-gender:
+  slots-to-fill:
+  - gender
+  actions:
+  - conditions:
+    - gender: [woman]
+    actions: change_goal(play-game)
+  - conditions:
+    - gender: []
+    actions: change_goal(ask-single)
+
+ask-single:
+  slots-to-fill:
+  - single
+  actions:
+  - conditions:
+    - single: [True]
+    actions: change-goal(ask-date)
+  - conditions:
+    - single: []
+    actions: change-goal(play-game)
+
+ask-date:
+  actions:
+  - utter_ask_date
