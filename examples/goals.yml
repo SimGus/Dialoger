@@ -1,8 +1,9 @@
 greet:
-  trigger-intent: null
-  slots-to-fill: []
+  trigger-intent: null  # No user intent can trigger this goal
+  slots-to-fill: []  # No slots to fill => the actions will be performed as soon as the goal is set
   actions:
   - utter_greet
+  - change-goal(who-are-you)
 
 who-are-you:
   trigger-intent: greet
@@ -16,8 +17,10 @@ who-are-you:
   - conditions:
     - age: []  # all the other values
     actions: change_goal(ask-gender)
+  # OR
+  - ActionChooseGameOrNot(name, age)
 
-play-game:
+play-game:  # trigger-intent and slots-to-fill are optional if they are empty
   actions:
   - utter_lets_play
 
