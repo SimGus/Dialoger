@@ -9,7 +9,6 @@ import io
 import yaml
 
 from utils import *
-from dialog_management_components import Goal
 
 
 ############### Slots descriptions #######################
@@ -46,7 +45,6 @@ def get_slots_descriptions():
 ################ Goals descriptions ########################
 GOALS_DESCRIPTIONS_FILEPATH = "../data/dialog/goals.yml"
 GOALS_DESCRIPTIONS = None
-GOALS = None
 ACTIONS_FOLDER_PATH = None
 
 def _load_goals_descriptions():
@@ -55,7 +53,7 @@ def _load_goals_descriptions():
     and checks that it is well formatted.
     `ACTIONS_FOLDER_PATH` is also set at this point.
     """
-    _global GOALS_DESCRIPTIONS
+    global GOALS_DESCRIPTIONS
     with io.open(GOALS_DESCRIPTIONS_FILEPATH, 'r') as f:
         file_data = cast_to_unicode(yaml.load(f, Loader=yaml.BaseLoader))  # BaseLoader disables automatic casting
         ACTIONS_FOLDER_PATH = file_data["actions-path"]
@@ -70,27 +68,10 @@ def _load_goals_descriptions():
     if len(intents) != len(GOALS_DESCRIPTIONS):
         raise SyntaxError("There are duplicate triggering intents in the goals "+
                           "descriptions file (an intent may trigger only one goal).")
-def get_goals():
-    """Loads the goals descriptions if needed and makes a list of goals from it.
-    Puts this list in `GOALS` and returns it."""
+def get_goals_descriptions():
+    """Loads the goals descriptions if needed and returns it."""
     # () -> ({str: Goal})
-    global GOALS
-    if GOALS is None:
+    global GOALS_DESCRIPTIONS
+    if GOALS_DESCRIPTIONS is None:
         _load_goals_descriptions()
-        GOALS = []
-        for goal_name in GOALS_DESCRIPTIONS:
-            current_goal_desc = GOALS_DESCRIPTIONS[goal_name]
-            mandatory_slots = []
-            if "slots-to-fill" in current_goal_desc and \
-               "mandatory" in current_goal_desc["slots-to-fill"]:
-               mandatory_slots = current_goal_desc["slots-to-fill"]["mandatory"]
-            optional_slots = []
-            if "slots-to-fill" in current_goal_desc and \
-               "optional" in current_goal_desc["slots-to-fill"]:
-               optional_slots = current_goal_desc["slots-to-fill"]["optional"]
-            actions = []
-            if "actions" in current_goal_desc:
-                actions = current_goal_desc["actions"]
-            GOALS.append(Goal(goal_name, current_goal_desc["triggering-intent"],
-                              mandatory_slots, optional_slots, actions))
-    return GOALS
+    return GOALS_DESCRIPTIONS

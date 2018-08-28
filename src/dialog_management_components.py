@@ -4,10 +4,11 @@
 from .config import get_slots_descriptions
 
 
-class Slot(object)
+class Slot(object):
     """Represents a slot, with a type and a value (empty or not)"""
     def __init__(self, name, type):
         self.name = name
+        self.type = None
         if type == "categorical":
             self.type = str
         elif type == "integer":
@@ -40,9 +41,11 @@ class Context(object):
         # (Goal) -> ()
         self.current_goal = goal
         self.expected_intents = []
+
+        slots_descriptions = get_slots_descriptions()
         self.slots = {slot_name: Slot(slot_name,
-                                      self.slot_descriptions[slot_name]["type"])
-                      for slot_name in self.get_slots_descriptions()}
+                                      slots_descriptions[slot_name]["type"])
+                      for slot_name in slots_descriptions}
 
     def set_slot(self, slot_name, value):
         if slot_name not in self.slots:
@@ -64,7 +67,7 @@ class Context(object):
         self.expected_intents = expected_intents
     def expecting(self, intent):
         # (str) -> (bool)
-        if intent in self.expected_intents:
+        return (intent in self.expected_intents)
 
 
 class Goal(object):
