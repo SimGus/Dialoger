@@ -5,28 +5,12 @@ from numpy import log2
 
 from utils import *
 from .dialog_management_components import *
-from .config import get_goals_descriptions
+from .config import get_goals_descriptions, get_intents_descriptions
 
 
 def make_goals_list():
     goals_descriptions = get_goals_descriptions()
-    goals_list = []
-    for goal_name in goals_descriptions:
-        current_goal_desc = goals_descriptions[goal_name]
-        mandatory_slots = []
-        if "slots-to-fill" in current_goal_desc and \
-           "mandatory" in current_goal_desc["slots-to-fill"]:
-           mandatory_slots = current_goal_desc["slots-to-fill"]["mandatory"]
-        optional_slots = []
-        if "slots-to-fill" in current_goal_desc and \
-           "optional" in current_goal_desc["slots-to-fill"]:
-           optional_slots = current_goal_desc["slots-to-fill"]["optional"]
-        actions = []
-        if "actions" in current_goal_desc:
-            actions = current_goal_desc["actions"]
-        goals_list.append(Goal(goal_name, current_goal_desc["triggering-intent"],
-                               mandatory_slots, optional_slots, actions))
-    return goals_list
+    return [Goal(goal_name) for goal_name in goals_descriptions]
 
 
 class DialogManager(object):
@@ -45,15 +29,12 @@ class DialogManager(object):
     UNEXPECTED_SOFT_THRESHOLD = 0.8
 
     def __init__(self):
-        self.build_goals_dict()
-        self.context = Context(self.goals_by_trigger["_init"])
-    def build_goals_dict(self):
-        """
-        Using a list of the goals, creates a dict containing all the goals
-        indexed using their triggering intents.
-        """
         self.goals_by_trigger = {goal.triggering_intent: goal
                                  for goal in make_goals_list()}
+
+        self.context = Context(self.goals_by_trigger["_init"])
+        self.intents_descriptions = get_intents_descriptions()
+
 
     def handle_user_msg(self, intent_and_entities):
         """
@@ -63,16 +44,45 @@ class DialogManager(object):
         Takes into account the current context and the confidences values to
         make a decision.
         """
-        # Intent understood can trigger a new goal
+        # (...) -> ([Action])
         understood_intent = intent_and_entities["intent"]
-        # if understood_intent["name"] in self.goals_by_trigger:
-        combinative_intent_confidence = \
-            self.compute_final_confidence(intent_and_entities,
-                                          understood_intent["name"])
-        printDBG("Confidence: "+str(understood_intent["confidence"])+" -> "+
-                 str(combinative_intent_confidence))
+        if self.context.is_expecting(understood_intent["name"]):
+            print("expected")
+            cumulative_intent_confidence = \
+                self.compute_final_confidence(intent_and_entities,
+                                              understood_intent["name"])
+            printDBG("confidence: "+str(understood_intent["confidence"])+" -> "+
+                     str(cumulative_intent_confidence))
+            # Confident in your understanding
+            if cumulative_intent_confidence > DialogManager.EXPECTED_SOFT_THRESHOLD:
+                print("confident")
+                return self.pursue_goal()
+            # Doubtful in your understanding
+            elif cumulative_intent_confidence > DialogManager.EXPECTED_HARD_THRESHOLD:
+                print("doubtful")
+                return ["ground"]  # TODO
+            # Not understood
+            else:
+                print("not understood")
+                return ["rephrase"]
+        else:
+            print("unexpected")
 
-
+    def pursue_goal(self):
+        """
+        If the goal is met, returns the actions to take;
+        otherwise, returns an action of asking for missing information.
+        """
+        # () -> ([str])  # TODO: should they be objects rather than str?
+        # Check for missing information
+        lacking_slot_name = self.context.get_lacking_info()
+        if lacking_slot_name is None:  # Goal is met
+            printDBG("Goal "+self.context.current_goal.name+" is met")
+            # TODO: check if some slots need to be upgraded before returning
+            return ["actions"]  # TODO
+        else:  # Goal is not met
+            printDBG("Goal "+self.context.current_goal.name+" is not met")
+            return [lacking_slot_name]
 
 
     def compute_final_confidence(self, intent_and_entities, intent_name):
@@ -91,14 +101,14 @@ class DialogManager(object):
             F = C_MO/(log_2(U+1)+1)
                 is the final confidence the bot has about the entities
                 given the intent it understood
-        The final confidence in the intent will then be the mean value of this
-        and the intent confidence and will be returned by this method.
+        The final confidence in the intent will then be the weighted mean value
+        of this and the intent confidence and will be returned by this method.
         """
         # ({"intent": {"name": str, "confidence": float},
         # "entities": [{"confidence": float, ...}],
         # "intent_ranking": [{"name": str, "confidence": float}],
         # "text": str}) -> (float)
-        # NOTE: the input fomat is shown here: http://rasa.com/docs/nlu/0.12.3/tutorial/
+        # NOTE: the input format is shown here: http://rasa.com/docs/nlu/0.12.3/tutorial/
         relevant_goal = None
         if intent_name not in self.goals_by_trigger:
             # This intent doesn't trigger any goals
@@ -157,7 +167,7 @@ class DialogManager(object):
                 break
 
         printDBG("F = "+str(F))
-        answer = mean(intent_confidence, F)
+        answer = (2*intent_confidence + F)/3.0  # weighted average
         if answer > 1.0:
             answer = 1.0
         return answer

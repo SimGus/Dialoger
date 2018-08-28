@@ -3,13 +3,50 @@
 # In this file, you will find all the configurations that is specific to the bot.
 # Things like config files paths and the handling of their opening is done here.
 
-# NOTE: the current working directory is the folder with 'main.py'
+# NOTE: the current working directory is the folder containing 'main.py'
 
 import io
 import yaml
 
 from utils import *
 
+
+############### NLU configuration ######################
+NLU_DATA_PATH = "../data/nlu/nlu-data.json"
+NLU_CONFIG_PATH = "../nlu-config.yml"
+MODELS_PATH = "../models/current/"
+NLU_MODEL_NAME = "nlu"
+
+############### Intents descriptions ###################
+INTENTS_DESCRIPTIONS_FILEPATH = "../data/dialog/intents-descriptions.yml"
+INTENTS_DESCRIPTIONS = None
+
+def _load_intents_descriptions():
+    """
+    Loads the data from `INTENTS_DESCRIPTIONS_FILEPATH`
+    into `INTENTS_DESCRIPTIONS` and checks that it is well formatted
+    """
+    global INTENTS_DESCRIPTIONS
+    with io.open(INTENTS_DESCRIPTIONS_FILEPATH, 'r') as f:
+        INTENTS_DESCRIPTIONS = \
+            cast_to_unicode(yaml.load(f, Loader=yaml.BaseLoader))  # BaseLoader disables automatic casting
+    # Check the format
+    for intent_name in INTENTS_DESCRIPTIONS:
+        current_intent_desc = INTENTS_DESCRIPTIONS[intent_name]
+        if "category" not in current_intent_desc:
+            raise SyntaxError("The intent named '"+intent_name+"' is lacking a "+
+                              "category in its description.")
+        if (   current_intent_desc["category"] == "grounding-answer"
+            or current_intent_desc["category"] == "triggering"):
+            if "sub-category" not in current_intent_desc:
+                raise SyntaxError("The intent named '"+intent_name+"' is "+
+                                  "lacking a sub-category in its description.")
+def get_intents_descriptions():
+    """Loads the intents descriptions if needed and returns them"""
+    # () -> ({str: {"category": str, "sub-category": str}})
+    if INTENTS_DESCRIPTIONS is None:
+        _load_intents_descriptions()
+    return INTENTS_DESCRIPTIONS
 
 ############### Slots descriptions #######################
 SLOTS_DESCRIPTIONS_FILEPATH = "../data/accepted-slot-values.yml"
@@ -70,7 +107,7 @@ def _load_goals_descriptions():
                           "descriptions file (an intent may trigger only one goal).")
 def get_goals_descriptions():
     """Loads the goals descriptions if needed and returns it."""
-    # () -> ({str: Goal})
+    # () -> ({str: {str: ...}})
     global GOALS_DESCRIPTIONS
     if GOALS_DESCRIPTIONS is None:
         _load_goals_descriptions()
