@@ -5,11 +5,13 @@ from numpy import log2
 
 from utils import *
 from .dialog_management_components import *
-from .config import get_goals_descriptions, get_intents_descriptions
+from . import config
+from .actions.ActionFactory import ActionFactory
+from .intent_utils import *
 
 
 def make_goals_list():
-    goals_descriptions = get_goals_descriptions()
+    goals_descriptions = config.get_goals_descriptions()
     return [Goal(goal_name) for goal_name in goals_descriptions]
 
 
@@ -33,10 +35,12 @@ class DialogManager(object):
                                  for goal in make_goals_list()}
 
         self.context = Context(self.goals_by_trigger["_init"])
-        self.intents_descriptions = get_intents_descriptions()
+        self.intents_descriptions = config.get_intents_descriptions()
+
+        self.action_factory = ActionFactory(config.get_utterances_templates())
 
 
-    def handle_user_msg(self, intent_and_entities):
+    def manage_user_msg(self, intent_and_entities):
         """
         Called when a new user message is issued, handles the message
         (represented as a dict with an intent and one or several optional
@@ -46,6 +50,7 @@ class DialogManager(object):
         """
         # (...) -> ([Action])
         understood_intent = intent_and_entities["intent"]
+        # User message was expected
         if self.context.is_expecting(understood_intent["name"]):
             print("expected")
             cumulative_intent_confidence = \
@@ -53,20 +58,47 @@ class DialogManager(object):
                                               understood_intent["name"])
             printDBG("confidence: "+str(understood_intent["confidence"])+" -> "+
                      str(cumulative_intent_confidence))
+
             # Confident in your understanding
             if cumulative_intent_confidence > DialogManager.EXPECTED_SOFT_THRESHOLD:
                 print("confident")
+                if is_triggering(understood_intent["name"]):
+                    pass
+                elif is_informing(understood_intent["name"]):
+                    pass
+                elif is_grounding_answer(understood_intent["name"]):
+                    pass
+                else:
+                    # Unreachable
+                    rephrase_utterance = self.action_factory \
+                                             .new_utterance("ask-rephrase",
+                                                            self.context)
+                    return [rephrase_utterance]
+                slot_grounding_actions = self.fill_slots(intent_and_entities)
+                if slot_grounding_actions is not None:
+                    return slot_grounding_actions
                 return self.pursue_goal()
             # Doubtful in your understanding
             elif cumulative_intent_confidence > DialogManager.EXPECTED_HARD_THRESHOLD:
                 print("doubtful")
-                return ["ground"]  # TODO
+                grounding_utterance = \
+                    self.action_factory \
+                        .new_grounding_utterance(
+                            self.intents_descriptions[understood_intent["name"]],
+                            self.context
+                        )
+                return [grounding_utterance]
             # Not understood
             else:
                 print("not understood")
-                return ["rephrase"]
+                rephrase_utterance = self.action_factory \
+                                         .new_utterance("ask-rephrase",
+                                                        self.context)
+                return [rephrase_utterance]
+        # User message was not expected
         else:
             print("unexpected")
+            return ["not yet supported"]
 
     def pursue_goal(self):
         """
@@ -84,6 +116,42 @@ class DialogManager(object):
             printDBG("Goal "+self.context.current_goal.name+" is not met")
             return [lacking_slot_name]
 
+    def fill_slots(self, intent_and_entities):
+        """
+        Fills the slots with the entities found and asks for a grounding
+        in case one of them is not clearly understood. Returns `None` if
+        everything was clear.
+        """
+        return None  # TODO
+
+    def filter_repeated_grounding_and_rephrase(self, utterance_action):
+        """
+        Using the history of the conversation, avoids repeating the same
+        grouding or a rephrase asking twice in a row. Returns the action to do
+        instead.
+        If the bot wants to utter a grounding to the answer to a grounding,
+        it should rather ask a rephrase.
+        If the bot wants to ask a rephrase a third time in a row, it should
+        rather ask to start the conversation over.
+        """
+        if ( isinstance(utterance_action, ActionUtterGroundIntent)
+            or isinstance(utterance_action, ActionUtterGroundEntity)):
+            # Wanted to ground
+            if self.context.grounding_count == 0:
+                return utterance_action
+            else:
+                return self.action_factory.new_utterance("ask-rephrase",
+                                                         self.context)
+        elif (  isinstance(utterance_action, ActionUtter)
+            and utterance_action.name == "ask-rephrase"):
+            # Wanted to ask to rephrase
+            if self.context.rephrase_count <= 1:
+                return utterance_action
+            else:
+                return self.action_factory.new_utterance("ask-start-over",
+                                                         self.context)
+        # Neither a grounding or a rephrase request
+        return utterance_action
 
     def compute_final_confidence(self, intent_and_entities, intent_name):
         """

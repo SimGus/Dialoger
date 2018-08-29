@@ -31,6 +31,71 @@ class Slot(object):
     def is_set(self):
         return (self.value is not None)
 
+
+class Goal(object):
+    """
+    Represents a goal with an identifier, a triggering intent, slots to fill
+    (mandatory and optional filling) and actions to take when the goal is met.
+    A goal is created by only giving its name, the rest will be taken out of the
+    descriptions of goals (cf. `config.py`).
+
+    Note: mandatory slot MUST be in order for the goal to be met; optional slots
+    may be filled and may be in some cases upgraded to mandatory; all other
+    slots shouldn't get filled and may not be upgraded to mandatory for this
+    goal. Mandatory slots cannot be downgraded.
+    """
+    goals_descriptions = get_goals_descriptions()
+
+    def __init__(self, name):  # TODO: read from the description, no need for all those arguments
+        # (str) -> ()
+        if name is None:
+            raise ValueError("Tried to create a goal without a name.")
+        if not Goal.is_valid(name):
+            raise ValueError("Tried to create a goal without a description ('"+name+"').")
+        self.name = name
+
+        current_goal_desc = Goal.goals_descriptions[name]
+        self.triggering_intent = current_goal_desc["triggering-intent"]
+        self.mandatory_slots = []
+        if "slots-to-fill" in current_goal_desc and \
+           "mandatory" in current_goal_desc["slots-to-fill"]:
+           self.mandatory_slots = current_goal_desc["slots-to-fill"]["mandatory"]
+        self.optional_slots = []
+        if "slots-to-fill" in current_goal_desc and \
+           "optional" in current_goal_desc["slots-to-fill"]:
+           self.optional_slots = current_goal_desc["slots-to-fill"]["optional"]
+        self.actions = []
+        if "actions" in current_goal_desc:
+            self.actions = current_goal_desc["actions"]
+
+
+    def is_met(self, context):  # QUESTION: is this useful?
+        for slot_name in self.mandatory_slots:
+            if not context.is_set(slot_name):
+                return False
+        return True
+
+    def make_mandatory(self, slot_name):
+        """
+        Upgrades a slot from optional to mandatory.
+        If the slot wasn't optional, raises an `ValueError`.
+        """
+        if slot_name not in self.optional_slots:
+            raise ValueError("Tried to make mandatory a slot that was "+
+                             "not optional in goal '"+self.name+"' (slot: '"+
+                             slot_name+"'.")
+        self.optional_slots.remove(slot_name)
+        self.mandatory_slots.append(slot_name)
+
+    @staticmethod
+    def is_valid(goal_name):
+        """
+        Static method that returns `True` iff `goal_name` references
+        a valid goal.
+        """
+        return goal_name in Goal.goals_descriptions
+
+
 class Context(object):
     """
     Represents the current context of the dialog, i.e. which goal is currently
@@ -48,6 +113,9 @@ class Context(object):
         self.slots = {slot_name: Slot(slot_name,
                                       slots_descriptions[slot_name]["type"])
                       for slot_name in slots_descriptions}
+
+        self.grounding_count = 0
+        self.rephrase_count = 0
 
         self.init()
     def init(self):
@@ -129,73 +197,32 @@ class Context(object):
         # (str) -> ()
         self.potential_upcoming_goal_name = goal_name
 
-    def change_goal(self, goal_name):
-        """
-        Changes the current goal overwriting the old one.
-        If `goal_name` is not a valid goal name, raises an `AttributeError`.
-        """
-        self.current_goal = Goal()
+    def reset_counts(self):
+        self.grounding_count = 0
+        self.rephrase_count = 0
 
-
-class Goal(object):
-    """
-    Represents a goal with an identifier, a triggering intent, slots to fill
-    (mandatory and optional filling) and actions to take when the goal is met.
-    A goal is created by only giving its name, the rest will be taken out of the
-    descriptions of goals (cf. `config.py`).
-
-    Note: mandatory slot MUST be in order for the goal to be met; optional slots
-    may be filled and may be in some cases upgraded to mandatory; all other
-    slots shouldn't get filled and may not be upgraded to mandatory for this
-    goal. Mandatory slots cannot be downgraded.
-    """
-    goals_descriptions = get_goals_descriptions()
-
-    def __init__(self, name):  # TODO: read from the description, no need for all those arguments
-        # (str) -> ()
-        if name is None:
-            raise ValueError("Tried to create a goal without a name.")
-        if not Goal.is_valid(name):
-            raise ValueError("Tried to create a goal without a description ('"+name+"').")
-        self.name = name
-
-        current_goal_desc = Goal.goals_descriptions[name]
-        self.triggering_intent = current_goal_desc["triggering-intent"]
-        self.mandatory_slots = []
-        if "slots-to-fill" in current_goal_desc and \
-           "mandatory" in current_goal_desc["slots-to-fill"]:
-           self.mandatory_slots = current_goal_desc["slots-to-fill"]["mandatory"]
-        self.optional_slots = []
-        if "slots-to-fill" in current_goal_desc and \
-           "optional" in current_goal_desc["slots-to-fill"]:
-           self.optional_slots = current_goal_desc["slots-to-fill"]["optional"]
-        self.actions = []
-        if "actions" in current_goal_desc:
-            self.actions = current_goal_desc["actions"]
-
-
-    def is_met(self, context):  # QUESTION: is this useful?
-        for slot_name in self.mandatory_slots:
-            if not context.is_set(slot_name):
-                return False
-        return True
-
-    def make_mandatory(self, slot_name):
-        """
-        Upgrades a slot from optional to mandatory.
-        If the slot wasn't optional, raises an `ValueError`.
-        """
-        if slot_name not in self.optional_slots:
-            raise ValueError("Tried to make mandatory a slot that was "+
-                             "not optional in goal '"+self.name+"' (slot: '"+
-                             slot_name+"'.")
-        self.optional_slots.remove(slot_name)
-        self.mandatory_slots.append(slot_name)
-
-    @staticmethod
-    def is_valid(goal_name):
-        """
-        Static method that returns `True` iff `goal_name` references
-        a valid goal.
-        """
-        return goal_name in Goal.goals_descriptions
+    def update_from(self, next_actions):
+        """Using the list of actions the bot is going to take, update the context."""
+        # To update it is needed to only look at the last action,
+        # since the bot issues messages one by one
+        last_action = next_actions[-1]
+        if (   isinstance(last_action, ActionUtterGroundIntent)
+            or isinstance(last_action, ActionUtterGroundEntity)):
+            # Will ground
+            self.grounding_count += 1
+            self.rephrase_count = 0
+            self.expected_replies = [{"category": "grounding-answer"},
+                                     {"category": "informing"}]
+        elif (  isinstance(last_action, ActionUtter)
+            and last_action.name == "ask-rephrase"):
+            # Will request a rephrase
+            self.rephrase_count += 1
+            self.grounding_count = 0
+            self.expected_replies = [{"category": "triggering"}]
+        elif isinstance(last_action, ActionAskSlotValue):
+            # Will ask for the value of a slot
+            self.reset_counts()
+            self.expected_replies = [{"category": "informing"}]  # TODO: this should be more precise (get the intent name)
+        else:
+            # Will utter anything else
+            self.reset_counts()
