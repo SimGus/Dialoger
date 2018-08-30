@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .config import *
+from . import config as cfg
+from .actions import Action as action, confirmation_requests as confirm, ActionAskSlotValue as ask
 
 
 class Slot(object):
@@ -11,20 +12,29 @@ class Slot(object):
         self.type = None
         if type == "categorical":
             self.type = str
+            import sys
+            if sys.version_info[0] == 2:
+                self.type = unicode
         elif type == "integer":
             self.type = int
-        elif type == "float" or type == "percentage":
-            self.type == float
+        elif type == "float" or type == "percentage":  # TODO: there is a percentage that has value 'not fully' somewhere (that will crash everything)
+            self.type = float
         elif type == "bool":
-            self.type == bool
+            self.type = bool
         else:
             raise AttributeError("Unexpected slot type: "+str(type))
         self.value = None
 
     def set(self, value):
-        if not isinstance(value, self.type):
+        casted_value = None
+        try:
+            casted_value = self.type(value)
+        except ValueError:
             raise AttributeError("Tried to set a slot of type "+
-                self.type.__name__+" with a value of another type ("+str(value)+")")
+                                 self.type.__name__+
+                                 " with a value of another type ('"+
+                                 str(value)+"': "+type(value).__name__+")")
+
         self.value = value
     def unset(self):
         self.value = None
@@ -44,9 +54,9 @@ class Goal(object):
     slots shouldn't get filled and may not be upgraded to mandatory for this
     goal. Mandatory slots cannot be downgraded.
     """
-    goals_descriptions = get_goals_descriptions()
+    goals_descriptions = cfg.get_goals_descriptions()
 
-    def __init__(self, name):  # TODO: read from the description, no need for all those arguments
+    def __init__(self, name):
         # (str) -> ()
         if name is None:
             raise ValueError("Tried to create a goal without a name.")
@@ -87,6 +97,22 @@ class Goal(object):
         self.optional_slots.remove(slot_name)
         self.mandatory_slots.append(slot_name)
 
+
+    def __eq__(self, other):
+        """
+        Two goals are considered equal if they have the same name,
+        not the same state.
+        """
+        if not isinstance(other, Goal):
+            return NotImplemented
+        return (self.name == other.name)
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __str__(self):
+        return "Goal: "+self.name
+
+
     @staticmethod
     def is_valid(goal_name):
         """
@@ -106,22 +132,25 @@ class Context(object):
         # (Goal) -> ()
         self.current_goal = goal
         self.expected_replies = []  # contains a list of possible replies (broad: intent categories or precise: intent names)
-        self.potential_upcoming_goal_name = None
 
-        self.intents_descriptions = get_intents_descriptions()
-        slots_descriptions = get_slots_descriptions()
+        self.intents_descriptions = cfg.get_intents_descriptions()
+        slots_descriptions = cfg.get_slots_descriptions()
         self.slots = {slot_name: Slot(slot_name,
                                       slots_descriptions[slot_name]["type"])
                       for slot_name in slots_descriptions}
 
-        self.grounding_count = 0
+        self.confirmation_request_count = 0
         self.rephrase_count = 0
+
+        self.potential_new_goal = None
+        self.entity_pending_for_confirmation = None  # stores a dict: {"slot-name": str, "value": str}
 
         self.init()
     def init(self):
         """Puts `self` in its initial state."""
         self.expected_replies = [{"category": "triggering"}]
 
+    #========== Slot related methods ===============
     def set_slot(self, slot_name, value):
         if slot_name not in self.slots:
             raise ValueError("Tried to set the value of a non-existing slot ("+
@@ -147,6 +176,8 @@ class Context(object):
                 return slot_name
         return None
 
+    #========== Expected message related methods ============
+    #---------- Type of message ------------
     def expect(self, expected_replies):
         """
         Changes the expected replies to `expected_replies`
@@ -176,6 +207,7 @@ class Context(object):
         #       `self.expected_replies` indeed contains dicts such as, from less
         #       precise to most precise: {"category": str},
         #       {"category": str, "sub-category": str} or {"intent-name": str}
+        # TODO: expected answer class?
         for expected_reply in self.expected_replies:
             if (    "intent-name" in expected_reply
                 and intent_name == expected_reply["intent-name"]):
@@ -188,17 +220,51 @@ class Context(object):
                     return True
         return False
 
-    def set_upcoming_goal(self, goal_name):
+    #----------- Pending new goal confirmation ------------
+    def set_potential_new_goal(self, goal):
         """
-        Stores the name of a potential upcoming goal.
+        Stores a potential upcoming goal.
         If the next user reply is `affirm`, the current goal should be changed
-        to the upcoming goal.
+        to the upcoming goal. Drops all pending entities.
         """
         # (str) -> ()
-        self.potential_upcoming_goal_name = goal_name
+        self.potential_new_goal = goal
+        self.entity_pending_for_confirmation = None
+    def new_goal_confirmed(self):
+        """Sets the current goal to the potential new goal (user confirmed)."""
+        if self.potential_new_goal is not None:
+            self.current_goal = self.potential_new_goal
+            self.potential_new_goal = None
+    def discard_potential_new_goal(self):
+        """Drops the potential new goal (user denied wanting to change)."""
+        self.potential_new_goal = None
 
+    #----------- Pending entity confimation ------------
+    def set_entity_pending_for_confirmation(self, slot_name, value):
+        """
+        Informs the context that the bot is waiting for
+        a confirmation of the entity for slot `slot_name` with value `value`.
+        """
+        self.entity_pending_for_confirmation = {"slot-name": slot_name,
+                                                "value": value}
+    def pending_entity_confirmed(self):
+        """
+        Informs the context that the entity pending to be confirmed
+        was confirmed by the user.
+        """
+        if self.entity_pending_for_confirmation is not None:
+            self.set_slot(self.entity_pending_for_confirmation["slot-name"],
+                          self.entity_pending_for_confirmation["value"])
+    def discard_pending_entity(self):
+        """
+        Drops the entity pending for confirmation
+        (it was denied by the user).
+        """
+        self.entity_pending_for_confirmation = None
+
+    #=========== Setters and updaters ==================
     def reset_counts(self):
-        self.grounding_count = 0
+        self.confirmation_request_count = 0
         self.rephrase_count = 0
 
     def update_from(self, next_actions):
@@ -206,23 +272,25 @@ class Context(object):
         # To update it is needed to only look at the last action,
         # since the bot issues messages one by one
         last_action = next_actions[-1]
-        if (   isinstance(last_action, ActionUtterGroundIntent)
-            or isinstance(last_action, ActionUtterGroundEntity)):
-            # Will ground
-            self.grounding_count += 1
+        if (   isinstance(last_action, confirm.ActionUtterConfirmIntent)
+            or isinstance(last_action, confirm.ActionUtterConfirmEntity)):
+            # Will request a confirmation
+            self.confirmation_request_count += 1
             self.rephrase_count = 0
-            self.expected_replies = [{"category": "grounding-answer"},
+            self.expected_replies = [{"category": "confirmation-request-answer"},
                                      {"category": "informing"}]
-        elif (  isinstance(last_action, ActionUtter)
+        elif (  isinstance(last_action, action.ActionUtter)
             and last_action.name == "ask-rephrase"):
             # Will request a rephrase
             self.rephrase_count += 1
-            self.grounding_count = 0
-            self.expected_replies = [{"category": "triggering"}]
-        elif isinstance(last_action, ActionAskSlotValue):
+            self.confirmation_request_count = 0
+            self.expected_replies = [{"category": "triggering"},  # TODO: replace categories by an enum
+                                     {"category": "informing"}]
+        elif isinstance(last_action, ask.ActionAskSlotValue):
             # Will ask for the value of a slot
             self.reset_counts()
-            self.expected_replies = [{"category": "informing"}]  # TODO: this should be more precise (get the intent name)
+            self.expected_replies = last_action.get_expected_replies()  # TODO: this should be more precise (get the intent name)
         else:
             # Will utter anything else
             self.reset_counts()
+            self.expected_replies = [{"category": "triggering"}]

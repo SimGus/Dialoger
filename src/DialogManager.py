@@ -2,12 +2,16 @@
 # -*- coding: utf-8 -*-
 
 from numpy import log2
+from copy import deepcopy
 
 from utils import *
+from . import intent_utils
 from .dialog_management_components import *
 from . import config
+
 from .actions.ActionFactory import ActionFactory
-from .intent_utils import *
+from .actions import confirmation_requests as confirm
+from .actions.Action import ActionUtter
 
 
 def make_goals_list():
@@ -23,7 +27,7 @@ class DialogManager(object):
     """
     # Thresholds on the confidence values:
     # Any intent/entity with confidence < hard threshold is considered as not understood;
-    # any intent/entity with confidence < soft threshold is grounded.
+    # any intent/entity with confidence < soft threshold gets asked for confirmation.
     # Those values are different when treating an expected message or an unexpected one.
     EXPECTED_HARD_THRESHOLD = 0.4
     EXPECTED_SOFT_THRESHOLD = 0.7
@@ -32,10 +36,11 @@ class DialogManager(object):
 
     def __init__(self):
         self.goals_by_trigger = {goal.triggering_intent: goal
-                                 for goal in make_goals_list()}
+                                 for goal in make_goals_list()}  # should always be deepcopied into a new context (never used as is)
 
         self.context = Context(self.goals_by_trigger["_init"])
         self.intents_descriptions = config.get_intents_descriptions()
+        self.slots_descriptions = config.get_slots_descriptions()
 
         self.action_factory = ActionFactory(config.get_utterances_templates())
 
@@ -47,6 +52,19 @@ class DialogManager(object):
         entities) and returns the action/utterance to do.
         Takes into account the current context and the confidences values to
         make a decision.
+        """
+        # (...) -> ([Action])
+        actions = self.formulate_answer(intent_and_entities)
+        actions =  self.filter_repeated_confirmation_and_rephrase(actions)
+        self.context.update_from(actions)
+        return actions
+
+    def formulate_answer(self, intent_and_entities):
+        """
+        Using the context and what's been understood from the last user message,
+        tries to formulate an answer (may that be asking a rephrase, a
+        confirmation request about what was unclear, asking for additionnal info
+        or answering a question) and returns this list of actions.
         """
         # (...) -> ([Action])
         understood_intent = intent_and_entities["intent"]
@@ -61,97 +79,223 @@ class DialogManager(object):
 
             # Confident in your understanding
             if cumulative_intent_confidence > DialogManager.EXPECTED_SOFT_THRESHOLD:
-                print("confident")
-                if is_triggering(understood_intent["name"]):
+                print("confident: "+understood_intent["name"])
+                if intent_utils.is_triggering(understood_intent["name"]):
+                    # Change goal and formulate answer
+                    next_goal = \
+                        deepcopy(self.goals_by_trigger[understood_intent["name"]])
+                    print("New goal: "+str(next_goal))
+                    if self.context.current_goal == next_goal:
+                        self.context.current_goal = next_goal
+                    else:
+                        # Goals are too different => change the context (forget the current slot values)
+                        self.context = Context(next_goal)
+                elif intent_utils.is_informing(understood_intent["name"]):
                     pass
-                elif is_informing(understood_intent["name"]):
-                    pass
-                elif is_grounding_answer(understood_intent["name"]):
-                    pass
+                elif intent_utils.is_confirmation_request_answer(understood_intent["name"]):
+                    if self.context.potential_new_goal is not None:
+                        if intent_utils.is_confirming(understood_intent["name"]):
+                            self.context.new_goal_confirmed()
+                        else:
+                            self.context.discard_potential_new_goal()
+                        return self.pursue_goal()
+                    else:
+                        if intent_utils.is_confirming(understood_intent["name"]):
+                            self.context.pending_entity_confirmed()
+                        else:
+                            self.context.discard_pending_entity()
+                    return self.pursue_goal()
                 else:
                     # Unreachable
+                    print("unreachable (not understood then)")
                     rephrase_utterance = self.action_factory \
                                              .new_utterance("ask-rephrase",
                                                             self.context)
                     return [rephrase_utterance]
-                slot_grounding_actions = self.fill_slots(intent_and_entities)
-                if slot_grounding_actions is not None:
-                    return slot_grounding_actions
+
+                slot_confirmation_request_action = \
+                    self.fill_slots(intent_and_entities, msg_was_expected=True)
+                if slot_confirmation_request_action is not None:
+                    return slot_confirmation_request_action
                 return self.pursue_goal()
             # Doubtful in your understanding
             elif cumulative_intent_confidence > DialogManager.EXPECTED_HARD_THRESHOLD:
                 print("doubtful")
-                grounding_utterance = \
-                    self.action_factory \
-                        .new_grounding_utterance(
-                            self.intents_descriptions[understood_intent["name"]],
-                            self.context
-                        )
-                return [grounding_utterance]
+                if intent_utils.is_triggering(understood_intent["name"]):
+                    print("potential new goal")
+                    self.context.set_potential_new_goal(
+                        self.goals_by_trigger[understood_intent["name"]]
+                    )
+                    confirmation_utterance = self.action_factory \
+                                                .new_confirmation_request_utterance(
+                                                    understood_intent["name"],
+                                                    self.context
+                                                )
+                    return [confirmation_utterance]
+                elif intent_utils.is_informing(understood_intent["name"]):
+                    # Consider you understood well
+                    print("not sure but ok")
+                    slot_confirmation_request_action = \
+                        self.fill_slots(intent_and_entities, msg_was_expected=True)
+                    if slot_confirmation_request_action is not None:
+                        return slot_confirmation_request_action
+                    return self.pursue_goal()
+                elif intent_utils.is_confirmation_request_answer(understood_intent["name"]):
+                    # Consider you understood well
+                    if self.context.potential_new_goal is not None:
+                        if intent_utils.is_confirming(understood_intent["name"]):
+                            self.context.new_goal_confirmed()
+                        else:
+                            self.context.discard_potential_new_goal()
+                        return self.pursue_goal()
+                    else:
+                        if intent_utils.is_confirming(understood_intent["name"]):
+                            self.context.pending_entity_confirmed()
+                        else:
+                            self.context.discard_pending_entity()
+                    return self.pursue_goal()
             # Not understood
             else:
                 print("not understood")
-                rephrase_utterance = self.action_factory \
-                                         .new_utterance("ask-rephrase",
-                                                        self.context)
+                rephrase_utterance = \
+                    self.action_factory.new_utterance("ask-rephrase",
+                                                      self.context)
                 return [rephrase_utterance]
         # User message was not expected
         else:
             print("unexpected")
-            return ["not yet supported"]
+            # TODO: use thresholds here
+            if intent_utils.is_triggering(understood_intent["name"]):
+                print("potential new goal")
+                self.context.set_potential_new_goal(
+                    self.goals_by_trigger[understood_intent["name"]]
+                )
+                confirmation_utterance = self.action_factory \
+                                            .new_confirmation_request_utterance(
+                                                understood_intent["name"],
+                                                self.context
+                                            )
+                return [confirmation_utterance]
+            if self.context.potential_new_goal is not None:
+                print("potential new goal again?")
+                # Try to confirm the new goal again
+                confirmation_utterance = self.action_factory \
+                                            .new_confirmation_request_utterance(
+                                                self.context.potential_new_goal.name,
+                                                self.context
+                                            )
+                return [confirmation_utterance]
+            elif intent_utils.is_informing(understood_intent["name"]):
+                # Consider you understood well
+                print("not sure but ok")
+                slot_confirmation_request_action = \
+                    self.fill_slots(intent_and_entities, msg_was_expected=True)
+                if slot_confirmation_request_action is not None:
+                    return slot_confirmation_request_action
+                return self.pursue_goal()
+            else:
+                print("not really understood")
+                rephrase_utterance = \
+                    self.action_factory.new_utterance("ask-rephrase",
+                                                      self.context)
 
     def pursue_goal(self):
         """
         If the goal is met, returns the actions to take;
         otherwise, returns an action of asking for missing information.
+        This will never return grouding or rephrasing utterances.
         """
         # () -> ([str])  # TODO: should they be objects rather than str?
         # Check for missing information
         lacking_slot_name = self.context.get_lacking_info()
         if lacking_slot_name is None:  # Goal is met
-            printDBG("Goal "+self.context.current_goal.name+" is met")
             # TODO: check if some slots need to be upgraded before returning
-            return ["actions"]  # TODO
+            printDBG("Goal "+self.context.current_goal.name+" is met")
+            # No special actions (confirmation request, ask value or rephrase) will be returned
+            actions = [self.action_factory.new_action(action_name,
+                                                      deepcopy(self.context))
+                       for action_name in self.context.current_goal.actions]
+            return actions
         else:  # Goal is not met
             printDBG("Goal "+self.context.current_goal.name+" is not met")
-            return [lacking_slot_name]
+            return [self.action_factory
+                    .new_ask_for_slot_utterance(lacking_slot_name,
+                                                deepcopy(self.context))]
 
-    def fill_slots(self, intent_and_entities):
+    def fill_slots(self, intent_and_entities, msg_was_expected=False):
         """
-        Fills the slots with the entities found and asks for a grounding
-        in case one of them is not clearly understood. Returns `None` if
-        everything was clear.
+        Fills the slots with the entities found and asks for a confirmation request
+        in case one of them is not clearly understood, i.e. it returns an
+        `ActionUtterConfirmEntity`. Returns `None` if everything was clear.
+        `msg_was_expected` is a boolean set to `True` if the message was
+        expected: the confidence threshold will thus be higher.
         """
-        return None  # TODO
+        def choose_which_to_request_confirmation(entity1, entity2):
+            if entity1 is None:
+                return entity2
+            mandatory_slots = self.context.current_goal.mandatory_slots
+            if entity1 in mandatory_slots and entity2 not in mandatory_slots:
+                return entity1
+            elif entity1 not in mandatory_slots and entity2 in mandatory_slots:
+                return entity2
+            elif entity1["confidence"] >= entity2["confidence"]:
+                return entity1
+            return entity2
 
-    def filter_repeated_grounding_and_rephrase(self, utterance_action):
+        hard_threshold = DialogManager.UNEXPECTED_HARD_THRESHOLD
+        soft_threshold = DialogManager.UNEXPECTED_SOFT_THRESHOLD
+        if msg_was_expected:
+            hard_threshold = DialogManager.EXPECTED_HARD_THRESHOLD
+            soft_threshold = DialogManager.EXPECTED_SOFT_THRESHOLD
+        entity_to_confirm = None
+        for entity in intent_and_entities["entities"]:
+            if entity["confidence"] >= soft_threshold:
+                self.context.set_slot(entity["entity"], entity["value"])
+            elif (    entity["confidence"] >= hard_threshold
+                and entity["confidence"] < soft_threshold):
+                entity_to_confirm = \
+                    choose_which_to_request_confirmation(entity_to_confirm,
+                                                         entity)
+            # otherwise discard the entity
+        if entity_to_confirm is not None:
+            slot_name = entity_to_confirm["entity"]
+            value = entity_to_confirm["value"]
+            self.context.set_entity_pending_for_confirmation(slot_name, value)
+            return self.action_factory \
+                       .new_confirmation_request_utterance((slot_name, value),
+                                                self.context)
+        return None
+
+    def filter_repeated_confirmation_and_rephrase(self, actions):
         """
         Using the history of the conversation, avoids repeating the same
-        grouding or a rephrase asking twice in a row. Returns the action to do
+        confirmation request or a rephrase asking twice in a row. Returns the action to do
         instead.
-        If the bot wants to utter a grounding to the answer to a grounding,
-        it should rather ask a rephrase.
+        If the bot wants to utter a confirmation request to the answer
+        to a previous confirmation request, it should rather ask a rephrase.
         If the bot wants to ask a rephrase a third time in a row, it should
         rather ask to start the conversation over.
         """
-        if ( isinstance(utterance_action, ActionUtterGroundIntent)
-            or isinstance(utterance_action, ActionUtterGroundEntity)):
-            # Wanted to ground
-            if self.context.grounding_count == 0:
-                return utterance_action
+        # ([Action]) -> ([Action])
+        utterance_action = actions[-1] # TODO: this might be improved
+        if (   isinstance(utterance_action, confirm.ActionUtterConfirmIntent)
+            or isinstance(utterance_action, confirm.ActionUtterConfirmEntity)):
+            # Wanted to request confirmation
+            if self.context.confirmation_request_count == 0:
+                return actions
             else:
-                return self.action_factory.new_utterance("ask-rephrase",
-                                                         self.context)
+                return [self.action_factory.new_utterance("ask-rephrase",
+                                                          self.context)]
         elif (  isinstance(utterance_action, ActionUtter)
             and utterance_action.name == "ask-rephrase"):
             # Wanted to ask to rephrase
             if self.context.rephrase_count <= 1:
-                return utterance_action
+                return actions
             else:
-                return self.action_factory.new_utterance("ask-start-over",
-                                                         self.context)
-        # Neither a grounding or a rephrase request
-        return utterance_action
+                return [self.action_factory.new_utterance("ask-start-over",
+                                                          self.context)]
+        # Neither a confirmation or rephrase request
+        return actions
 
     def compute_final_confidence(self, intent_and_entities, intent_name):
         """
@@ -171,7 +315,7 @@ class DialogManager(object):
                 given the intent it understood
         The final confidence in the intent will then be the weighted mean value
         of this and the intent confidence and will be returned by this method.
-        """
+        """ # TODO: problem if there is no slots to fill
         # ({"intent": {"name": str, "confidence": float},
         # "entities": [{"confidence": float, ...}],
         # "intent_ranking": [{"name": str, "confidence": float}],
@@ -233,6 +377,9 @@ class DialogManager(object):
             if intent["name"] == intent_name:
                 intent_confidence = intent["confidence"]
                 break
+
+        if M_count == 0.0:
+            return intent_confidence
 
         printDBG("F = "+str(F))
         answer = (2*intent_confidence + F)/3.0  # weighted average

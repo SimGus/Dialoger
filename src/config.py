@@ -3,6 +3,9 @@
 
 # In this file, you will find all the configurations that is specific to the bot.
 # Things like config files paths and the handling of their opening is done here.
+#
+# Yes, global variables are a bad practice but it would be more complicated to
+# use a config singleton that would be defined here ;)
 
 # NOTE: the current working directory is the folder containing 'main.py'
 
@@ -19,6 +22,9 @@ MODELS_PATH = "../models/current/"
 NLU_MODEL_NAME = "nlu"
 
 ############### Intents descriptions ###################
+INFORM_INTENT_PREFIX = "inform_"
+
+
 INTENTS_DESCRIPTIONS_FILEPATH = "../data/dialog/intents-descriptions.yml"
 INTENTS_DESCRIPTIONS = None
 
@@ -29,8 +35,10 @@ def _load_intents_descriptions():
     """
     global INTENTS_DESCRIPTIONS
     with io.open(INTENTS_DESCRIPTIONS_FILEPATH, 'r') as f:
-        INTENTS_DESCRIPTIONS = \
-            cast_to_unicode(yaml.load(f, Loader=yaml.BaseLoader))  # BaseLoader disables automatic casting
+        tmp = yaml.load(f, Loader=yaml.BaseLoader)  # BaseLoader disables automatic casting
+        for intent_name in tmp:
+            tmp[intent_name]["name"] = intent_name
+        INTENTS_DESCRIPTIONS = cast_to_unicode(tmp)
     # Check the format
     for intent_name in INTENTS_DESCRIPTIONS:
         current_intent_desc = INTENTS_DESCRIPTIONS[intent_name]
@@ -40,7 +48,7 @@ def _load_intents_descriptions():
         if "summary" not in current_intent_desc:
             raise SyntaxError("The intent named '"+intent_name+"' is lacking a "+
                               "summary in it description.")
-        if (   current_intent_desc["category"] == "grounding-answer"
+        if (   current_intent_desc["category"] == "confirmation-request-answer"
             or current_intent_desc["category"] == "triggering"):
             if "sub-category" not in current_intent_desc:
                 raise SyntaxError("The intent named '"+intent_name+"' is "+
@@ -63,8 +71,10 @@ def _load_slots_descriptions():
     """
     global SLOTS_DESCRIPTIONS
     with io.open(SLOTS_DESCRIPTIONS_FILEPATH, 'r') as f:
-        SLOTS_DESCRIPTIONS = \
-            cast_to_unicode(yaml.load(f, Loader=yaml.BaseLoader))  # BaseLoader disables automatic casting
+        tmp = yaml.load(f, Loader=yaml.BaseLoader)  # BaseLoader disables automatic casting
+        for slot_name in tmp:
+            tmp[slot_name]["name"] = slot_name
+        SLOTS_DESCRIPTIONS = cast_to_unicode(tmp)
     # Check the format
     for slot_name in SLOTS_DESCRIPTIONS:
         current_slot_desc = SLOTS_DESCRIPTIONS[slot_name]
@@ -85,29 +95,55 @@ def get_slots_descriptions():
     return SLOTS_DESCRIPTIONS
 
 
-################ Goals descriptions ########################
+################ Goals and actions descriptions ########################
+#--------------- Actions ----------------
+UTTERANCE_ACTION_PREFIX = "utter"
+
+REQUEST_CONFIRMATION_INTENT_ACTION_NAME = "ask-confirm-intent"
+REQUEST_CONFIRMATION_SLOT_VAL_ACTION_NAME = "ask-confirm-slot-value"
+ASK_SLOT_VAL_ACTION_NAME = "ask-slot-value"
+
+PARAMETRIZED_ACTIONS_NAMES = [REQUEST_CONFIRMATION_INTENT_ACTION_NAME,
+                              REQUEST_CONFIRMATION_SLOT_VAL_ACTION_NAME,
+                              ASK_SLOT_VAL_ACTION_NAME]
+SPECIAL_ACTIONS_NAMES = ["ask-rephrase", "ask-start-over"]
+
+#-------------- Goals --------------------
 GOALS_DESCRIPTIONS_FILEPATH = "../data/dialog/goals.yml"
 GOALS_DESCRIPTIONS = None
-ACTIONS_FOLDER_PATH = None
+CUSTOM_ACTIONS_MODULE_PATH = None
+
 
 def _load_goals_descriptions():
     """
     Loads the data from `GOALS_DESCRIPTIONS_FILEPATH` into `GOALS_DESCRIPTIONS`
     and checks that it is well formatted.
-    `ACTIONS_FOLDER_PATH` is also set at this point.
+    `CUSTOM_ACTIONS_MODULE_PATH` is also set at this point.
     """
-    global GOALS_DESCRIPTIONS
+    def is_reserved_action_name(action_name):
+        return (   action_name in PARAMETRIZED_ACTIONS_NAMES
+                or action_name in SPECIAL_ACTIONS_NAMES)
+
+    global GOALS_DESCRIPTIONS, CUSTOM_ACTIONS_MODULE_PATH
     with io.open(GOALS_DESCRIPTIONS_FILEPATH, 'r') as f:
         file_data = cast_to_unicode(yaml.load(f, Loader=yaml.BaseLoader))  # BaseLoader disables automatic casting
-        ACTIONS_FOLDER_PATH = file_data["actions-path"]
+        CUSTOM_ACTIONS_MODULE_PATH = file_data["actions-path"].replace('/', '.')
+        if not CUSTOM_ACTIONS_MODULE_PATH.endswith('.'):
+            CUSTOM_ACTIONS_MODULE_PATH += '.'
         GOALS_DESCRIPTIONS = file_data["goals"]
     # Check the format
     intents = set()
     for goal_name in GOALS_DESCRIPTIONS:
-        if "triggering-intent" not in GOALS_DESCRIPTIONS[goal_name]:
+        current_goal_desc = GOALS_DESCRIPTIONS[goal_name]
+        if "triggering-intent" not in current_goal_desc:
             raise SyntaxError("The goal '"+goal_name+"' has no triggering intent "+
                               "in the goals description file.")
-        intents.add(GOALS_DESCRIPTIONS[goal_name]["triggering-intent"])
+        if "actions" in current_goal_desc:
+            for action_name in current_goal_desc["actions"]:
+                if is_reserved_action_name(action_name):
+                    raise SyntaxError("Cannot use reserved action name '"+
+                                      action_name+"' inside a goal's actions.")
+        intents.add(current_goal_desc["triggering-intent"])
     if len(intents) != len(GOALS_DESCRIPTIONS):
         raise SyntaxError("There are duplicate triggering intents in the goals "+
                           "descriptions file (an intent may trigger only one goal).")
@@ -118,6 +154,16 @@ def get_goals_descriptions():
     if GOALS_DESCRIPTIONS is None:
         _load_goals_descriptions()
     return GOALS_DESCRIPTIONS
+def get_custom_actions_module_path():
+    """
+    Loads the goals descriptions if needed and
+    returns `CUSTOM_ACTIONS_MODULE_PATH`.
+    """
+    # () -> (str)
+    global CUSTOM_ACTIONS_MODULE_PATH
+    if CUSTOM_ACTIONS_MODULE_PATH is None:
+        _load_goals_descriptions()
+    return CUSTOM_ACTIONS_MODULE_PATH
 
 ############# Utterance templates descriptions ##################
 UTTERANCES_TEMPLATES_DESCRIPTIONS_FILEPATH = \
