@@ -1,0 +1,54 @@
+# This file describes the goals of the dialog manager
+# i.e. the states the bot should be in at different points in the dialog and
+# what actions it should take next
+
+actions-path: bot/actions/custom
+
+goals:
+  start:
+    triggering-intent: _init  # A goal with a triggering intent named `_init` is mandatory and will be the initial goal of the bot
+    actions:
+      - utter-how-can-I-help
+
+  describe_machine_planning:
+    triggering-intent: query_machine_planning
+    slots-to-fill:
+      mandatory:
+        - production_line
+      optional:
+        - line_number
+    actions:
+      - ActionLookUpMachinePlanning
+      - utter-machine-planning-description
+
+  filter_orders_time:
+    triggering-intent: query_filter_orders_time
+    slots-to-fill:
+      mandatory:
+        - filter_time
+      optional: []
+    actions:
+      - ActionLookUpOrdersTime
+      - utter-list-orders-time
+
+  filter_orders_completion:
+    triggering-intent: query_filter_orders_completion
+    slots-to-fill:
+      mandatory:
+        - filter_completion
+      optional: []
+    actions:
+      - ActionLookUpOrdersCompletion
+      - utter-list-orders-completion
+
+  explain_machine_utilization:
+    triggering-intent: why_machine_utilization
+    slots-to-fill:
+      mandatory:
+        - production_line
+      optional:
+        - line_number
+        - utilization
+    actions:
+      - ActionLookUpWhyMachineUtilization
+      - utter-machine-utilization-explanation

@@ -1,0 +1,51 @@
+# This file contains templates the bot can fill when it wants to utter something
+# NOTE: you can use html tags in the templates.
+
+#============= Special utterances ======================
+utter-how-can-I-help:
+  - "How can I help?"
+  - "What do you need to know?"
+  - "What can I assist you with?"
+
+ask-start-over:
+  - "I am really sorry I <b>couldn't understand</b>. Let's <b>start this conversation over</b>, shall we?"
+  - "Excuse me, I'm afraid we will have to <b>start again from the beginning</b>...<br/>How may I help you?"
+  - "I still <b>did not understand</b>, sorry. Let's <b>start over from the beginning<b>...<br/>How can I help?"
+
+ask-rephrase:
+  - "I'm sorry, I <b>didn't understand</b> that. Could you <b>rephrase</b>?"
+  - "Excuse me, I <b>didn't get that</b>. Would you mind <b>rephrasing</b>?"
+  - "I'm afraid I <b>didn't understand</b>, sorry. Could you ask that <b>in other words</b>?"
+
+ask-confirm-intent:
+  - "Did you say you wanted to <b>|intent-summary|</b>?"
+  - "I'm not sure, do you want to <b>|intent-summary|</b>?"
+  - "Can you confirm me that you want to <b>|intent-summary|</b>?"
+
+ask-confirm-slot-value:
+  - "Could you <b>confirm</b> that you are talking about the |slot-summary| <b>|slot-value|</b>?"
+  - "I'm not sure, did you say the |slot-summary| was <b>|slot-value|</b>?"
+  - "I'm not certain I understood, is the |slot-summary| <b>|slot-value|</b>?"
+
+ask-slot-value:
+  - "Could you tell me what <b>|slot-name|</b> you are interested in?"
+  - "Okay, for what <b>|slot-name|</b>?"
+  - "Alright, I will need the <b>|slot-name|</b>, please."
+
+#=============== Case-specific utterances =======================
+utter-machine-planning-description:
+  - "The <b>planning</b> for production line <b>|production_line|~line_number~</b> is |planning|."
+  - "Okay, here is the <b>planning</b> of the production line <b>|production_line|~line_number~</b>: |planning|."
+  - "Here is the <b>planning</b> for the <b>|production_line|~line_number~</b> production line: |planning|."
+
+utter-list-orders-time:
+  - "Here is a list of the <b>orders</b> that will be <b>|filter_time|</b>: |order-list|."
+  - "Alright, here are the <b>orders</b> that are scheduled <b>|filter_time|</b>: |order-list|."
+
+utter-list-orders-completion:
+  - "Here is a list of the <b>orders</b> that will be completed at <b>|filter_completion|%</b>: |order-list|."
+  - "Alright, here are the <b>orders</b> which are planned at <b>|filter_completion|%</b>: |order-list|."
+
+utter-machine-utilization-explanation:
+  - "The production line <b>|production_line|~line_number~</b> is used at <b>|utilization|%</b> of its capacity because |machine-utilization-explanation|"
+  - "Okay, the production line <b>|production_line|~line_number~</b> is used at <b>|utilization|%</b> of its capacity because |machine-utilization-explanation|"

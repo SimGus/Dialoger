@@ -1,0 +1,36 @@
+# This file isn't used by the bot but is simply there to be a description of
+# some possible dialogs the bot could have with the user in terms of intents
+# and goals.
+# Bot messages are marked with a dash (-) while user messages are marked with an
+# asterisk (*).
+
+Story ask machine planning 1:
+  - utter_how_can_I_help
+  * query_machine_planning(production_line=LAL_SKP, line_number=2)
+  - look up...
+  - utter_describe_machine_planning
+
+Story ask machine planning 2:
+  - utter_how_can_I_help
+  * query_machine_planning(production_line=LAL_SKP)
+  - utter_ask_line_nb
+  * inform_machine_number(line_number=2)
+  - look up...
+  - utter_describe_machine_planning
+
+Story ask machine planning 3:
+  - utter_how_can_I_help
+  * query_machine_planning()
+  - utter_ask_machine
+  * inform_machine(production_line=LAL_SKP, line_number=2)
+  - look up...
+  - utter_describe_machine_planning
+
+Story change mind:
+  - utter_how_can_I_help
+  * query_machine_planning()
+  - utter_ask_machine
+  * why_machine_utilization(production_line=LAL_SHP)
+  - utter_confirm_change_goal(query_machine_planning, why_machine_utilization)
+  * confirm
+  # new goal: why_machine_utilization

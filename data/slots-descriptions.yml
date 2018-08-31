@@ -1,0 +1,82 @@
+# This file contains descriptions of all the slots that can be understood and
+# filled by the bot. Each slot has a type ('categorical', 'integer', 'float',
+# 'boolean' or 'percentage'), a summary as a string that the bot can use to
+# describe the slot to the user in messages and the accepted values for the
+# slot which are client-specific.
+# The summary should be a common name that can be put in a sentence such as
+# "Did you say SOMETHING for the ...?" and shouldn't have a trailing dot or a
+# keading uppercase letter.
+# !!! Current client: La Louviere !!!
+# TODO put client specific data in another file?
+
+production_line:
+  summary: "production line"
+  type: categorical
+  values:
+  - GLO_SSP
+  - LAL_HSM
+  - LAL_SKP
+  - EXT_SKP
+  - LAL_PCK
+  - EXT_PCK
+  - LAL_CRM
+  - EXT_CRM
+  - LAL_PAC
+  - LAL_SHP
+  - STR_GLV
+  - EXT_GLV
+  - STR_PNT
+  - EXT_PNT
+  - STR_SLT
+  - STR_PAC
+  - STR_SHP
+  - GLO_CLI
+line_number:
+  summary: "production line number"
+  type: integer
+  values:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+filter_time:
+  summary: "characteristic time of the orders"
+  type: categorical
+  values:
+  - late
+  - on time
+filter_completion:
+  summary: "completion of the orders"
+  type: percentage
+  values:
+  - 0.0
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.8
+  - 0.9
+  - 1.0
+utilization:
+  summary: "production line utilization"
+  type: percentage
+  values:
+  - 0.0
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.4
+  - 0.5
+  - 0.6
+  - 0.7
+  - 0.8
+  - 0.9
+  - 1.0
+  - not fully

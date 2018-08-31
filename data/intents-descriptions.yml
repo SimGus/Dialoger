@@ -1,0 +1,103 @@
+# This file contains rough descriptions of the user intents.
+# we split intents into three different categories:
+#   - The "triggering" intents
+#     They can trigger a new goal for the bot to pursue. Those intent mean the
+#     user has the initiative (whether they were given it or took it)
+#     and changes the subject of the conversation.
+#   - The "informing" intents
+#     They usually answer a question of the bot, informing it of the value of
+#     some slots. For example, it would be an answer to "which line are you
+#     talking about?"
+#   - The "confirmation request answer" intents
+#     They are answers to a bot's request to confirm, i.e. a confirmation
+#     or a denial of what the bot requested to confirm. For example,
+#     they would be an answer to the question "Did you mean 'line number 2'?".
+#     Note that a denial could be accompanied by a "informing" intent and
+#     thus be considered to be in this category. However, a confirmation is
+#     always in this category.
+# There are also sub-categories inside categories:
+#   - in "triggering":
+#     * query
+#     * analysis
+#     * recommendation
+#   - in "informing"
+#     none
+#   - in "confirmation request answer":
+#     * confirm
+#     * deny
+#
+# Each intent also has a summary which is a string that the bot will use to
+# ground intents in sentences such as "did you want to ...?". Those
+# summary thus need to be written in the format "do something" from the
+# viewpoint of the bot, without a trailing dot and without a leading uppercase
+# letter.
+#
+# Finally, each intent has some expected entities and some allowed entities.
+# That is, it is expected to find an "expected" entity with this intent, and it
+# is permitted to find some "allowed" entities with it, but if they are not
+# there, it is not that problematic. Finding other entities will make the bot
+# less sure it has well understood.
+
+confirm:
+  category: confirmation-request-answer
+  sub-category: confirm
+  summary: "confirm what I previously said is correct"
+  expected-entities: []
+  allowed-entities: []
+deny:
+  category: confirmation-request-answer
+  sub-category: deny
+  summary: "say what I previously said is incorrect"
+  expected-entities: []
+  allowed-entities: []
+
+inform_production_line:
+  category: informing
+  summary: "tell me which production line you are interested in"
+  expected-entities: [production_line]
+  allowed-entities: [line_number]
+inform_line_number:
+  category: informing
+  summary: "tell me the number of the production line you are interested in"
+  expected-entities: [line_number]
+  allowed-entities: []
+inform_filter_time:
+  category: informing
+  summary: "tell me the characteristic of the orders you are interested in"
+  expected-entities: [filter_time]
+  allowed-entities: []
+inform_filter_completion:
+  category: informing
+  summary: "tell me the completion of the orders you are interested in"
+  expected-entities: [filter_completion]
+  allowed-entities: []
+inform_utilization:
+  category: informing
+  summary: "tell me the utilization of the production line you are interested in"
+  expected-entities: [utilization]
+  allowed-entities: []
+
+query_machine_planning:
+  category: triggering
+  sub-category: query
+  summary: "query the planning of a production line"
+  expected-entities: [production_line]  # TODO: sure about that?
+  allowed-entities: [line_number]
+query_filter_orders_time:
+  category: triggering
+  sub-category: query
+  summary: "filter orders based on their completion time"
+  expected-entities: [filter_time]
+  allowed-entities: []
+query_filter_orders_completion:
+  category: triggering
+  sub-category: query
+  summary: "filter orders based on their completion"
+  expected-entities: [filter_completion]
+  allowed-entities: []
+why_machine_utilization:
+  category: triggering
+  sub-category: analysis
+  summary: "ask me why a machine is used as it is in the plan"
+  expected-entities: [production_line]
+  allowed-entities: [utilization]
