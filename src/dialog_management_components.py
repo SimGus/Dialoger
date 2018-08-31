@@ -9,7 +9,7 @@ class Slot(object):
     """Represents a slot, with a type and a value (empty or not)"""
     def __init__(self, name, type):
         self.name = name
-        self.type = None
+        self.type_str = type
         if type == "categorical":
             self.type = str
             import sys
@@ -26,7 +26,6 @@ class Slot(object):
         self.value = None
 
     def set(self, value):
-        casted_value = None
         try:
             casted_value = self.type(value)
         except ValueError:
@@ -35,7 +34,7 @@ class Slot(object):
                                  " with a value of another type ('"+
                                  str(value)+"': "+type(value).__name__+")")
 
-        self.value = value
+        self.value = casted_value
     def unset(self):
         self.value = None
     def is_set(self):
@@ -88,12 +87,12 @@ class Goal(object):
     def make_mandatory(self, slot_name):
         """
         Upgrades a slot from optional to mandatory.
-        If the slot wasn't optional, raises an `ValueError`.
+        If the slot wasn't optional, raises an `KeyError`.
         """
         if slot_name not in self.optional_slots:
-            raise ValueError("Tried to make mandatory a slot that was "+
-                             "not optional in goal '"+self.name+"' (slot: '"+
-                             slot_name+"'.")
+            raise KeyError("Tried to make mandatory a slot that was "+
+                           "not optional in goal '"+self.name+"' (slot: '"+
+                           slot_name+"'.")
         self.optional_slots.remove(slot_name)
         self.mandatory_slots.append(slot_name)
 
@@ -128,6 +127,10 @@ class Context(object):
     being worked on, which slots are filled and their value and what kind of
     intent is expected in the next utterance of the user.
     """
+    MAX_CONSECUTIVE_MISUNDERSTANDING_MSG = 3
+    MAX_CONSECUTIVE_ASK_REPHRASE = 2
+    MAX_CONSECUTIVE_ASK_CONFIRMATION = 1
+
     def __init__(self, goal):
         # (Goal) -> ()
         self.current_goal = goal
@@ -139,8 +142,9 @@ class Context(object):
                                       slots_descriptions[slot_name]["type"])
                       for slot_name in slots_descriptions}
 
-        self.confirmation_request_count = 0
-        self.rephrase_count = 0
+        self._confirmation_request_count = 0
+        self._rephrase_count = 0
+        self._consecutive_misunderstanding_count = 0
 
         self.potential_new_goal = None
         self.entity_pending_for_confirmation = None  # stores a dict: {"slot-name": str, "value": str}
@@ -166,7 +170,13 @@ class Context(object):
             raise ValueError("Tried to get the value of a non-existing slot ("+
                              slot_name+").")
         return self.slots[slot_name].value
-    def get_lacking_info(self):
+    def reset_slots(self):
+        slots_descriptions = cfg.get_slots_descriptions()
+        self.slots = {slot_name: Slot(slot_name,
+                                      slots_descriptions[slot_name]["type"])
+                      for slot_name in slots_descriptions}
+
+    def get_lacking_slot_names(self):
         """
         Returns the name of an empty mandatory slot in the current goal
         or `None` if there was none.
@@ -175,6 +185,21 @@ class Context(object):
             if not self.is_set(slot_name):
                 return slot_name
         return None
+
+    def promote_slot(self, slot_name):
+        """
+        Promotes the optional slot named `slot_name` to 'mandatory'.
+        Returns `True` if the slot was promoted and `False` otherwise (the slot
+        was not optional). Raises a `KeyError` if the slot does not exist.
+        """
+        if slot_name not in self.slots:
+            raise KeyError("Tried to promote an inexistant slot from "+
+                           "'optional' to 'mandatory' ('"+slot_name+"').")
+        try:
+            self.current_goal.make_mandatory(slot_name)
+            return True
+        except KeyError:
+            return False
 
     #========== Expected message related methods ============
     #---------- Type of message ------------
@@ -224,17 +249,24 @@ class Context(object):
     def set_potential_new_goal(self, goal):
         """
         Stores a potential upcoming goal.
-        If the next user reply is `affirm`, the current goal should be changed
+        If the next user reply is `confirm`, the current goal should be changed
         to the upcoming goal. Drops all pending entities.
         """
         # (str) -> ()
         self.potential_new_goal = goal
         self.entity_pending_for_confirmation = None
     def new_goal_confirmed(self):
-        """Sets the current goal to the potential new goal (user confirmed)."""
+        """
+        Sets the current goal to the potential new goal (user confirmed) and
+        forgets everything that has been done before.
+        """  # TODO: it might be interesting to keep some info?
         if self.potential_new_goal is not None:
             self.current_goal = self.potential_new_goal
             self.potential_new_goal = None
+            # Forget everything else
+            self.reset_slots()
+            self.reset_counts()
+            self.discard_pending_entity()
     def discard_potential_new_goal(self):
         """Drops the potential new goal (user denied wanting to change)."""
         self.potential_new_goal = None
@@ -262,30 +294,47 @@ class Context(object):
         """
         self.entity_pending_for_confirmation = None
 
-    #=========== Setters and updaters ==================
+    #=========== Rephrasing permisions related methods ============
     def reset_counts(self):
-        self.confirmation_request_count = 0
-        self.rephrase_count = 0
+        self._confirmation_request_count = 0
+        self._rephrase_count = 0
+        self._consecutive_misunderstanding_count = 0
 
+    def may_ask_confirmation(self):
+        """Returns `True` if the bot is allowed to ask for a confirmation."""
+        return (    self._confirmation_request_count < Context.MAX_CONSECUTIVE_ASK_CONFIRMATION
+                and self._consecutive_misunderstanding_count < Context.MAX_CONSECUTIVE_MISUNDERSTANDING_MSG)
+    def may_ask_rephrase(self):
+        """Returns `True` if the bot is allowed to ask for a rephrase."""
+        return (    self._rephrase_count < Context.MAX_CONSECUTIVE_ASK_REPHRASE
+                and self._consecutive_misunderstanding_count < Context.MAX_CONSECUTIVE_MISUNDERSTANDING_MSG)
+
+    #=========== Updaters ==================
     def update_from(self, next_actions):
         """Using the list of actions the bot is going to take, update the context."""
         # To update it is needed to only look at the last action,
         # since the bot issues messages one by one
         last_action = next_actions[-1]
-        if (   isinstance(last_action, confirm.ActionUtterConfirmIntent)
-            or isinstance(last_action, confirm.ActionUtterConfirmEntity)):
-            # Will request a confirmation
-            self.confirmation_request_count += 1
-            self.rephrase_count = 0
+        if isinstance(last_action, confirm.ActionUtterConfirmIntent):
+            # Will request a confirmation for an intent (yes/no)
+            self._consecutive_misunderstanding_count += 1
+            self._confirmation_request_count += 1
+            self._rephrase_count = 0
+            self.expected_replies = [{"category": "confirmation-request-answer"}]
+        elif isinstance(last_action, confirm.ActionUtterConfirmEntity):
+            # Will request a confirmation for an entity (yes/no/correction)
+            self._consecutive_misunderstanding_count += 1
+            self._confirmation_request_count += 1
+            self._rephrase_count = 0
             self.expected_replies = [{"category": "confirmation-request-answer"},
                                      {"category": "informing"}]
         elif (  isinstance(last_action, action.ActionUtter)
             and last_action.name == "ask-rephrase"):
             # Will request a rephrase
-            self.rephrase_count += 1
-            self.confirmation_request_count = 0
-            self.expected_replies = [{"category": "triggering"},  # TODO: replace categories by an enum
-                                     {"category": "informing"}]
+            self._consecutive_misunderstanding_count += 1
+            self._rephrase_count += 1
+            self._confirmation_request_count = 0
+            # expected replies stay the same (as the user should rephrase)
         elif isinstance(last_action, ask.ActionAskSlotValue):
             # Will ask for the value of a slot
             self.reset_counts()
@@ -294,3 +343,6 @@ class Context(object):
             # Will utter anything else
             self.reset_counts()
             self.expected_replies = [{"category": "triggering"}]
+        print("updated context: confcount: "+str(self._confirmation_request_count))
+        print("\trephrase count: "+str(self._rephrase_count))
+        print("\texpecting: "+str(self.expected_replies))

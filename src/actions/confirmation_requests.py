@@ -27,8 +27,7 @@ class ActionUtterConfirmIntent(ActionUtter):
         self.intent_to_confirm = intent_to_confirm  # dict as described in the config, {"summary": str, ...}
 
     def generate_msg(self, fetched_info=dict()):
-        raise TypeError("Tried to generate a confirmation request message without giving "+
-                        "it something to confirm.")
+        return self.generate_confirmation_request()
 
     def generate_confirmation_request(self):
         """Generates a message to confirm the intent `self.intent_to_confirm`."""
@@ -72,10 +71,9 @@ class ActionUtterConfirmEntity(ActionUtter):
         self.slot_value = slot_value
 
     def generate_msg(self, fetched_info=dict()):
-        raise TypeError("Tried to generate a confirmation request message without giving "+
-                        "it something to confirm.")
+        return self.generate_confirmation_request()
 
-    def generate_confirmation_request(self, slot_to_confirm, value):
+    def generate_confirmation_request(self):
         """
         Generates a message asking the user to confirm
         the value of the slot `self.slot_to_confirm`.

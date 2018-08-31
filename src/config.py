@@ -10,7 +10,7 @@
 # NOTE: the current working directory is the folder containing 'main.py'
 
 import io
-import yaml
+import yaml, json
 
 from utils import *
 
@@ -53,6 +53,10 @@ def _load_intents_descriptions():
             if "sub-category" not in current_intent_desc:
                 raise SyntaxError("The intent named '"+intent_name+"' is "+
                                   "lacking a sub-category in its description.")
+        if (   "expected-entities" not in current_intent_desc
+            or "allowed-entities" not in current_intent_desc):
+            raise SyntaxError("The intent named '"+intent_name+"' doesn't have "+
+                              "expected and/or allowed entities in its description.")
 def get_intents_descriptions():
     """Loads the intents descriptions if needed and returns them"""
     # () -> ({str: {"category": str, "sub-category": str}})
@@ -61,8 +65,10 @@ def get_intents_descriptions():
     return INTENTS_DESCRIPTIONS
 
 ############### Slots descriptions #######################
-SLOTS_DESCRIPTIONS_FILEPATH = "../data/slots-descriptions.yml"
+SLOTS_DESCRIPTIONS_FILEPATH = "../data/dialog/slots-descriptions.yml"
 SLOTS_DESCRIPTIONS = None
+SLOTS_SYNONYMS_FILEPATH = NLU_DATA_PATH
+SLOTS_SYNONYMS = None
 
 def _load_slots_descriptions():
     """
@@ -93,6 +99,29 @@ def get_slots_descriptions():
     if SLOTS_DESCRIPTIONS is None:
         _load_slots_descriptions()
     return SLOTS_DESCRIPTIONS
+
+def _load_slot_values_synonyms():
+    """Loads the slot values synonyms from the Rasa NLU input data."""
+    global SLOTS_SYNONYMS
+    with io.open(SLOTS_SYNONYMS_FILEPATH, 'r') as f:
+        tmp = json.load(f)
+        if (   "rasa_nlu_data" not in tmp
+            or "entity_synonyms" not in tmp["rasa_nlu_data"]):
+            raise SyntaxError("The Rasa NLU data cannot be used by other parts "+
+                              "of the bot because it isn't in the right data "+
+                              "format (that for rasa NLU 0.13.1).")
+        SLOTS_SYNONYMS = {slot_syn["value"]: slot_syn["synonyms"]
+                          for slot_syn in tmp["rasa_nlu_data"]["entity_synonyms"]
+                          if len(slot_syn["synonyms"]) > 0}
+def get_slots_values_synonyms():
+    """
+    Loads the slots synonyms from Rasa NLU input data if needed and
+    returns a filtered, usable version.
+    """
+    # () -> ({str: [str]})
+    if SLOTS_SYNONYMS is None:
+        _load_slot_values_synonyms()
+    return SLOTS_SYNONYMS
 
 
 ################ Goals and actions descriptions ########################

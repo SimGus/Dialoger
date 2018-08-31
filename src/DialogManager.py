@@ -7,7 +7,8 @@ from copy import deepcopy
 from utils import *
 from . import intent_utils
 from .dialog_management_components import *
-from . import config
+from . import config as cfg
+from . import entity_checker
 
 from .actions.ActionFactory import ActionFactory
 from .actions import confirmation_requests as confirm
@@ -15,7 +16,7 @@ from .actions.Action import ActionUtter
 
 
 def make_goals_list():
-    goals_descriptions = config.get_goals_descriptions()
+    goals_descriptions = cfg.get_goals_descriptions()
     return [Goal(goal_name) for goal_name in goals_descriptions]
 
 
@@ -34,15 +35,22 @@ class DialogManager(object):
     UNEXPECTED_HARD_THRESHOLD = 0.5
     UNEXPECTED_SOFT_THRESHOLD = 0.8
 
+    RESET_MSG = "restart"
+
     def __init__(self):
         self.goals_by_trigger = {goal.triggering_intent: goal
                                  for goal in make_goals_list()}  # should always be deepcopied into a new context (never used as is)
 
         self.context = Context(self.goals_by_trigger["_init"])
-        self.intents_descriptions = config.get_intents_descriptions()
-        self.slots_descriptions = config.get_slots_descriptions()
+        self.intents_descriptions = cfg.get_intents_descriptions()
+        self.slots_descriptions = cfg.get_slots_descriptions()
 
-        self.action_factory = ActionFactory(config.get_utterances_templates())
+        self.action_factory = ActionFactory(cfg.get_utterances_templates())
+
+
+    def reset(self):
+        """Reset `self` to its initial state."""
+        self.context = Context(self.goals_by_trigger["_init"])
 
 
     def manage_user_msg(self, intent_and_entities):
@@ -54,6 +62,16 @@ class DialogManager(object):
         make a decision.
         """
         # (...) -> ([Action])
+        # Manage restarting of the bot by the user
+        if intent_and_entities["text"] == DialogManager.RESET_MSG:
+            self.reset()
+            return self.pursue_goal()
+
+        # Correct correctable entities and ditch others
+        intent_and_entities["entities"] = \
+            entity_checker.check_entities_val(intent_and_entities["entities"])
+
+        # Build actions
         actions = self.formulate_answer(intent_and_entities)
         actions =  self.filter_repeated_confirmation_and_rephrase(actions)
         self.context.update_from(actions)
@@ -68,15 +86,14 @@ class DialogManager(object):
         """
         # (...) -> ([Action])
         understood_intent = intent_and_entities["intent"]
+        cumulative_intent_confidence = \
+            self.compute_final_confidence(intent_and_entities,
+                                          understood_intent["name"])
+        printDBG("confidence: "+str(understood_intent["confidence"])+" -> "+
+                 str(cumulative_intent_confidence))
         # User message was expected
         if self.context.is_expecting(understood_intent["name"]):
             print("expected")
-            cumulative_intent_confidence = \
-                self.compute_final_confidence(intent_and_entities,
-                                              understood_intent["name"])
-            printDBG("confidence: "+str(understood_intent["confidence"])+" -> "+
-                     str(cumulative_intent_confidence))
-
             # Confident in your understanding
             if cumulative_intent_confidence > DialogManager.EXPECTED_SOFT_THRESHOLD:
                 print("confident: "+understood_intent["name"])
@@ -85,19 +102,22 @@ class DialogManager(object):
                     next_goal = \
                         deepcopy(self.goals_by_trigger[understood_intent["name"]])
                     print("New goal: "+str(next_goal))
-                    if self.context.current_goal == next_goal:
-                        self.context.current_goal = next_goal
-                    else:
-                        # Goals are too different => change the context (forget the current slot values)
-                        self.context = Context(next_goal)
+                    # change the context (forget the current slot values)
+                    self.context = Context(next_goal)
                 elif intent_utils.is_informing(understood_intent["name"]):
                     pass
                 elif intent_utils.is_confirmation_request_answer(understood_intent["name"]):
                     if self.context.potential_new_goal is not None:
+                        # User confirmed
                         if intent_utils.is_confirming(understood_intent["name"]):
                             self.context.new_goal_confirmed()
+                        # User denied
                         else:
                             self.context.discard_potential_new_goal()
+                            if self.context.current_goal.is_met(self.context):
+                                # Get back to the initial goal
+                                self.reset()
+                            # Otherwise continue asking for info about the current goal, you certainly misunderstood
                         return self.pursue_goal()
                     else:
                         if intent_utils.is_confirming(understood_intent["name"]):
@@ -116,7 +136,7 @@ class DialogManager(object):
                 slot_confirmation_request_action = \
                     self.fill_slots(intent_and_entities, msg_was_expected=True)
                 if slot_confirmation_request_action is not None:
-                    return slot_confirmation_request_action
+                    return [slot_confirmation_request_action]
                 return self.pursue_goal()
             # Doubtful in your understanding
             elif cumulative_intent_confidence > DialogManager.EXPECTED_HARD_THRESHOLD:
@@ -138,15 +158,20 @@ class DialogManager(object):
                     slot_confirmation_request_action = \
                         self.fill_slots(intent_and_entities, msg_was_expected=True)
                     if slot_confirmation_request_action is not None:
-                        return slot_confirmation_request_action
+                        return [slot_confirmation_request_action]
                     return self.pursue_goal()
                 elif intent_utils.is_confirmation_request_answer(understood_intent["name"]):
                     # Consider you understood well
                     if self.context.potential_new_goal is not None:
+                        # User confirmed
                         if intent_utils.is_confirming(understood_intent["name"]):
                             self.context.new_goal_confirmed()
+                        # User denied
                         else:
-                            self.context.discard_potential_new_goal()
+                            if self.context.current_goal.is_met(self.context):
+                                # Get back to the initial goal
+                                self.reset()
+                            # Otherwise continue asking for info about the current goal, you certainly misunderstood
                         return self.pursue_goal()
                     else:
                         if intent_utils.is_confirming(understood_intent["name"]):
@@ -164,40 +189,49 @@ class DialogManager(object):
         # User message was not expected
         else:
             print("unexpected")
-            # TODO: use thresholds here
-            if intent_utils.is_triggering(understood_intent["name"]):
-                print("potential new goal")
-                self.context.set_potential_new_goal(
-                    self.goals_by_trigger[understood_intent["name"]]
-                )
-                confirmation_utterance = self.action_factory \
-                                            .new_confirmation_request_utterance(
-                                                understood_intent["name"],
-                                                self.context
-                                            )
-                return [confirmation_utterance]
-            if self.context.potential_new_goal is not None:
-                print("potential new goal again?")
-                # Try to confirm the new goal again
-                confirmation_utterance = self.action_factory \
-                                            .new_confirmation_request_utterance(
-                                                self.context.potential_new_goal.name,
-                                                self.context
-                                            )
-                return [confirmation_utterance]
-            elif intent_utils.is_informing(understood_intent["name"]):
-                # Consider you understood well
-                print("not sure but ok")
-                slot_confirmation_request_action = \
-                    self.fill_slots(intent_and_entities, msg_was_expected=True)
-                if slot_confirmation_request_action is not None:
-                    return slot_confirmation_request_action
-                return self.pursue_goal()
+            # Confident in your understanding
+            if cumulative_intent_confidence > DialogManager.UNEXPECTED_SOFT_THRESHOLD:
+                if intent_utils.is_triggering(understood_intent["name"]):
+                    print("potential new goal")
+                    self.context.set_potential_new_goal(
+                        self.goals_by_trigger[understood_intent["name"]]
+                    )
+                    confirmation_utterance = self.action_factory \
+                                                .new_confirmation_request_utterance(
+                                                    understood_intent["name"],
+                                                    self.context
+                                                )
+                    return [confirmation_utterance]
+                elif self.context.potential_new_goal is not None:
+                    print("potential new goal again?")
+                    # Try to confirm the new goal again
+                    confirmation_utterance = self.action_factory \
+                                                .new_confirmation_request_utterance(
+                                                    understood_intent["name"],
+                                                    self.context
+                                                )
+                    return [confirmation_utterance]
+                elif intent_utils.is_informing(understood_intent["name"]):
+                    # Consider you understood well
+                    print("not sure but ok")
+                    slot_confirmation_request_action = \
+                        self.fill_slots(intent_and_entities, msg_was_expected=True)
+                    if slot_confirmation_request_action is not None:
+                        return [slot_confirmation_request_action]
+                    return self.pursue_goal()
+                else:
+                    print("not really understood")
+                    rephrase_utterance = \
+                        self.action_factory.new_utterance("ask-rephrase",
+                                                          self.context)
+                    return [rephrase_utterance]
+            # Not understood # TODO: should it do something else when hard_threshold < confidence < soft_threshold
             else:
-                print("not really understood")
+                print("not understood")
                 rephrase_utterance = \
                     self.action_factory.new_utterance("ask-rephrase",
                                                       self.context)
+                return [rephrase_utterance]
 
     def pursue_goal(self):
         """
@@ -207,20 +241,26 @@ class DialogManager(object):
         """
         # () -> ([str])  # TODO: should they be objects rather than str?
         # Check for missing information
-        lacking_slot_name = self.context.get_lacking_info()
-        if lacking_slot_name is None:  # Goal is met
-            # TODO: check if some slots need to be upgraded before returning
-            printDBG("Goal "+self.context.current_goal.name+" is met")
-            # No special actions (confirmation request, ask value or rephrase) will be returned
+        lacking_slot_name = self.context.get_lacking_slot_names()
+        if lacking_slot_name is None:  # All mandatory slots are filled
             actions = [self.action_factory.new_action(action_name,
-                                                      deepcopy(self.context))
+                       deepcopy(self.context))
                        for action_name in self.context.current_goal.actions]
-            return actions
-        else:  # Goal is not met
-            printDBG("Goal "+self.context.current_goal.name+" is not met")
-            return [self.action_factory
-                    .new_ask_for_slot_utterance(lacking_slot_name,
-                                                deepcopy(self.context))]
+            # Check if some slots need to be promoted from 'optional' to 'mandatory'
+            promotion_happened = False
+            for action in actions:
+                promotion_happened = action.promote_needed_optional_slots(self.context)
+                if promotion_happened:
+                    lacking_slot_name = self.context.get_lacking_slot_names()
+                    break
+            if lacking_slot_name is None:  # Goal is met
+                printDBG("Goal "+self.context.current_goal.name+" is met")
+                return actions
+        # Goal is not met
+        printDBG("Goal "+self.context.current_goal.name+" is not met")
+        return [self.action_factory
+                .new_ask_for_slot_utterance(lacking_slot_name,
+                                            deepcopy(self.context))]
 
     def fill_slots(self, intent_and_entities, msg_was_expected=False):
         """
@@ -281,7 +321,7 @@ class DialogManager(object):
         if (   isinstance(utterance_action, confirm.ActionUtterConfirmIntent)
             or isinstance(utterance_action, confirm.ActionUtterConfirmEntity)):
             # Wanted to request confirmation
-            if self.context.confirmation_request_count == 0:
+            if self.context.may_ask_confirmation():
                 return actions
             else:
                 return [self.action_factory.new_utterance("ask-rephrase",
@@ -289,7 +329,7 @@ class DialogManager(object):
         elif (  isinstance(utterance_action, ActionUtter)
             and utterance_action.name == "ask-rephrase"):
             # Wanted to ask to rephrase
-            if self.context.rephrase_count <= 1:
+            if self.context.may_ask_rephrase():
                 return actions
             else:
                 return [self.action_factory.new_utterance("ask-start-over",
@@ -321,55 +361,77 @@ class DialogManager(object):
         # "intent_ranking": [{"name": str, "confidence": float}],
         # "text": str}) -> (float)
         # NOTE: the input format is shown here: http://rasa.com/docs/nlu/0.12.3/tutorial/
-        relevant_goal = None
-        if intent_name not in self.goals_by_trigger:
-            # This intent doesn't trigger any goals
-            if intent_and_entities["intent"]["name"] == intent_name:
-                return intent_and_entities["intent"]["confidence"]
-            intent_confidence = None
-            for intent in intent_and_entities["intent_ranking"]:
-                if intent["name"] == intent_name:
-                    intent_confidence = intent["confidence"]
-                    break
-            return intent_confidence
-        # TODO: check what the expected slots where
+        intent_description = None
+        intent_descriptions = cfg.get_intents_descriptions()
+        if intent_name not in intent_descriptions:
+            raise RuntimeError("The bot understood an inexistant intent ('"+
+                               intent_name+"').")
         else:
-            relevant_goal = self.goals_by_trigger[intent_name]
+            intent_description = intent_descriptions[intent_name]
 
-        M_sum_confidences = 0
-        M_count = 0
-        for detected_entity in intent_and_entities["entities"]:
-            if detected_entity["entity"] in relevant_goal.mandatory_slots:
-                M_count += 1
-                M_sum_confidences += detected_entity["confidence"]
-        M = 0.0
-        if M_count > 0:
-            M = float(M_sum_confidences)/float(M_count)
+        print("expected: "+str(intent_description["expected-entities"]))
+        print("allowed: "+str(intent_description["allowed-entities"]))
+        C_MO = None
+        if (    len(intent_description["expected-entities"]) <= 0
+            and len(intent_description["allowed-entities"]) <= 0):
+            print("no expected or allowed entities => no correction")
+            return intent_and_entities["intent"]["confidence"]
+        elif len(intent_description["expected-entities"]) <= 0:
+            print("no expected entities")
+            P_sum_confidences = 0
+            P_count = 0
+            for detected_entity in intent_and_entities["entities"]:
+                if detected_entity["entity"] in intent_description["allowed-entities"]:
+                    P_count += 1
+                    P_sum_confidences += detected_entity["confidence"]
+            P = 0.0
+            if P_count > 0:
+                P = float(P_sum_confidences)/float(P_count)
 
-        P_sum_confidences = 0
-        P_count = 0
-        for detected_entity in intent_and_entities["entities"]:
-            if detected_entity["entity"] in relevant_goal.optional_slots:
-                P_count += 1
-                P_sum_confidences += detected_entity["confidence"]
-        P = 0.0
-        if P_count > 0:
-            P = float(P_sum_confidences)/float(P_count)
+            C_MO = (log2(P+1)/2.0)+1
+
+            print("\tP = "+str(P)+"\tC_MO = "+str(C_MO))
+        else:
+            print("expected entities and allowed entities")
+            M_sum_confidences = 0
+            M_count = 0
+            for detected_entity in intent_and_entities["entities"]:
+                if detected_entity["entity"] in intent_description["expected-entities"]:
+                    M_count += 1
+                    M_sum_confidences += detected_entity["confidence"]
+            M = 0.0
+            if M_count > 0:
+                M = float(M_sum_confidences)/float(M_count)
+
+            P_sum_confidences = 0
+            P_count = 0
+            for detected_entity in intent_and_entities["entities"]:
+                if detected_entity["entity"] in intent_description["allowed-entities"]:
+                    P_count += 1
+                    P_sum_confidences += detected_entity["confidence"]
+            P = 0.0
+            if P_count > 0:
+                P = float(P_sum_confidences)/float(P_count)
+
+            C_MO = log2(M+1)/(log2(0.8*P+1)+1)
+            if P != 0:
+                C_MO += 1/(2-log2(P))
+
+            print("\tM = "+str(M)+"\tP = "+str(P)+"\tC_MO = "+str(C_MO))
 
         U_sum_confidences = 0
         U_count = 0
         for detected_entity in intent_and_entities["entities"]:
-            if (    detected_entity["entity"] not in relevant_goal.mandatory_slots
-                and detected_entity["entity"] not in relevant_goal.optional_slots):
+            if (    detected_entity["entity"] not in intent_description["expected-entities"]
+                and detected_entity["entity"] not in intent_description["allowed-entities"]):
                 U_count += 1
                 U_sum_confidences += detected_entity["confidence"]
         U = 0.0
         if U_count > 0:
             U = float(U_sum_confidences)/float(U_count)
 
-        C_MO = log2(M+1)/(log2(0.8*P+1)+1)
-        if P != 0:
-            C_MO += 1/(2-log2(P))
+        print("\tU = "+str(U))
+
         F = C_MO/(log2(U+1)+1)
 
         intent_confidence = None
@@ -378,11 +440,8 @@ class DialogManager(object):
                 intent_confidence = intent["confidence"]
                 break
 
-        if M_count == 0.0:
-            return intent_confidence
-
-        printDBG("F = "+str(F))
-        answer = (2*intent_confidence + F)/3.0  # weighted average
+        print("\tF = "+str(F))
+        answer = (4*intent_confidence + 3*F)/7.0  # weighted average
         if answer > 1.0:
             answer = 1.0
         return answer
