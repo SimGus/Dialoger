@@ -46,13 +46,14 @@ def check_entities_val(entities):
         # Can you find the closest match?
         for accepted_val in slots_descriptions[current_slot_name]["values"]:
             edit_distance = _levenshtein_edit_distance(accepted_val,
-                                                       current_str)
+                                                               current_str)
             (len1, len2) = (len(accepted_val), len(current_str))
             if edit_distance <= _MAX_EDIT_DISTANCE_FACTOR*max(len1, len2):
                 correct_entities.append(_build_correct_entity(entity,
                                                               accepted_val,
                                                               0.02*edit_distance))
                 corrected = True
+                print("found "+current_str+" ~= "+accepted_val)
                 break
             if (   accepted_val.lower() in current_str
                 or accepted_val.upper() in current_str):
@@ -104,13 +105,15 @@ def check_entities_val(entities):
         for slot_value in slot_values_synonyms:
             if slot_value in slots_descriptions[current_slot_name]["values"]:
                 for syn in slot_values_synonyms[slot_value]:
-                    edit_distance = _levenshtein_edit_distance(syn, current_str)
+                    edit_distance = \
+                        _levenshtein_edit_distance(syn, current_str)
                     (len1, len2) = (len(syn), len(current_str))
                     if edit_distance <= _MAX_EDIT_DISTANCE_FACTOR*max(len1, len2):
                         correct_entities.append(_build_correct_entity(entity,
                                                                       slot_value,
                                                                       0.02*edit_distance))
                         corrected = True
+                        print("found "+current_str+" ~= "+syn)
                         break
                     if (   syn.lower() in current_str
                         or syn.upper() in current_str):
@@ -142,18 +145,19 @@ def _levenshtein_edit_distance(s1, s2):
     """
     Returns the edit distance between the two strings.
     source: https://stackoverflow.com/questions/2460177/edit-distance-in-python
-    # https://stackoverflow.com/questions/7036277/how-to-optimize-edit-distance-code
     """
     # OPTIMIZE: this takes a very long time (seeing how many i call it)
-    len1 = len(s1)
-    if len1 > len(s2):
+    if len(s1) > len(s2):
         s1, s2 = s2, s1
+    (len1, len2) = (len(s1), len(s2))
+    current_threshold_distance = _MAX_EDIT_DISTANCE_FACTOR*len2
+    if len2-len1 > current_threshold_distance:
+        return current_threshold_distance+1
 
     distances = range(len1 + 1)
     for (i2, c2) in enumerate(s2):
         distances_ = [i2+1]
         for (i1, c1) in enumerate(s1):
-
             if c1 == c2:
                 distances_.append(distances[i1])
             else:

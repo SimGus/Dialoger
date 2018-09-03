@@ -23,18 +23,23 @@ class Slot(object):
             self.type = bool
         else:
             raise AttributeError("Unexpected slot type: "+str(type))
-        self.value = None
+        self.value = None  # str
 
     def set(self, value):
+        # (str) -> ()
         try:
+            # Check that the value is in a format that seems coherent with the announced type
+            # NOTE: the casted value is NOT used as the value since using slot
+            #       values is not a hard constraint (for example 'not 100%'
+            #       could be logical in a percentage), hence the warning.
+            #       `self.value` is thus a `str` (`unicode` in Python 2).
             casted_value = self.type(value)
         except ValueError:
-            raise AttributeError("Tried to set a slot of type "+
-                                 self.type.__name__+
-                                 " with a value of another type ('"+
-                                 str(value)+"': "+type(value).__name__+")")
-
-        self.value = casted_value
+            import warnings
+            warnings.warn("Tried to set a slot of type "+self.type.__name__+
+                          " to a value of another type ('"+str(value)+"': "+
+                          type(value).__name__+")")
+        self.value = value
     def unset(self):
         self.value = None
     def is_set(self):
