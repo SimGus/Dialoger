@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from utils import *
-from .Action import ActionUtter
+from .Action import ActionUtter, BotErrorMessage
 import bot.config as cfg
 
 
@@ -27,6 +27,8 @@ class ActionUtterConfirmIntent(ActionUtter):
         self.intent_to_confirm = intent_to_confirm  # dict as described in the config, {"summary": str, ...}
 
     def generate_msg(self, fetched_info=dict()):
+        if isinstance(fetched_info, BotErrorMessage):
+            return fetched_info.msg
         return self.generate_confirmation_request()
 
     def generate_confirmation_request(self):
@@ -71,6 +73,8 @@ class ActionUtterConfirmEntity(ActionUtter):
         self.slot_value = slot_value
 
     def generate_msg(self, fetched_info=dict()):
+        if isinstance(fetched_info, BotErrorMessage):
+            return fetched_info.msg
         return self.generate_confirmation_request()
 
     def generate_confirmation_request(self):

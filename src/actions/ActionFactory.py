@@ -8,6 +8,9 @@ from .confirmation_requests import *
 from .ActionAskSlotValue import ActionAskSlotValue
 import bot.config as cfg
 
+from utils import is_API_accessible
+from .ActionNoAPI import ActionNoAPI
+
 
 def import_action_class(class_name, module_name=None):
     """
@@ -16,6 +19,8 @@ def import_action_class(class_name, module_name=None):
     The loaded class can be used to instantiate new objects.
     """
     # type: (str) -> (Class)
+    if not is_API_accessible():
+        return ActionNoAPI
     if module_name is None:
         # The action class is put in a file with the same name
         module_name = cfg.get_custom_actions_module_path()+class_name

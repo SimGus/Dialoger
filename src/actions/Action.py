@@ -21,7 +21,7 @@ class Action(object):
 
     def run(self):
         """Runs the action and returns the potentially fetched informations."""
-        # (Context) -> ({str: str})
+        # () -> ({str: str} or BotErrorMessage)
         return dict()
 
     def promote_needed_optional_slots(self, context_to_update):
@@ -54,7 +54,9 @@ class ActionUtter(Action):
         `fetched_info` is a dict containing all the information that was fetched
         by previous actions.
         """
-        # ({str: str}) -> (str)
+        # ({str: str} or BotErrorMessage) -> (str)
+        if isinstance(fetched_info, BotErrorMessage):
+            return fetched_info.msg
         chosen_template = choose(self.template_msgs)  # will never return `None`
         return chosen_template.generate(self.context, fetched_info)
 
@@ -81,7 +83,7 @@ class MsgTemplate(object):
     OPTIONAL_TEMPLATE_BOUNDARY_CHAR = '~'
     OPTIONAL_TEMPLATE_REGEX = \
         re.compile(r"(?<!\\)"+OPTIONAL_TEMPLATE_BOUNDARY_CHAR+
-                   r".*(?<!\\)"+OPTIONAL_TEMPLATE_BOUNDARY_CHAR)
+                   r".*?(?<!\\)"+OPTIONAL_TEMPLATE_BOUNDARY_CHAR)
 
     def __init__(self, template):
         if not isinstance(template, str):
@@ -109,30 +111,57 @@ class MsgTemplate(object):
             slot_value = context.get_slot_value(slot_name)
             if slot_value is not None:
                 slot_value = str(slot_value)
-                if context.slots[slot_name].type_str == "percentage":
-                    slot_value = str(100*float(slot_value))  # To display it in percents
+                try:
+                    if context.slots[slot_name].type_str == "percentage":
+                        slot_value = "{:.1f}".format((100*float(slot_value)))  # To display it in percents
+                    elif context.slots[slot_name].type_str == "float":
+                        slot_value = "{:.1f}".format(float(slot_value))
+                except ValueError:
+                    import warnings
+                    warnings.warn("A slot of type 'float' or 'percentage' has "+
+                                  "a value of another type ('"+slot_value+"').")
 
             if slot_value is not None:
                 msg = msg.replace(MsgTemplate.TEMPLATE_BOUNDARY_CHAR + slot_name +
                                   MsgTemplate.TEMPLATE_BOUNDARY_CHAR,
                                   slot_value)
-            if slot_value is None:
-                msg = msg.replace(MsgTemplate.OPTIONAL_TEMPLATE_BOUNDARY_CHAR+
-                                  slot_name+
-                                  MsgTemplate.OPTIONAL_TEMPLATE_BOUNDARY_CHAR,
-                                  "")
-            else:
                 msg = msg.replace(MsgTemplate.OPTIONAL_TEMPLATE_BOUNDARY_CHAR+
                                   slot_name+
                                   MsgTemplate.OPTIONAL_TEMPLATE_BOUNDARY_CHAR,
                                   slot_value)
         for info_name in fetched_info:
-            msg = msg.replace(MsgTemplate.TEMPLATE_BOUNDARY_CHAR + info_name +
-                              MsgTemplate.TEMPLATE_BOUNDARY_CHAR,
-                              fetched_info[info_name])
-            msg = msg.replace(MsgTemplate.OPTIONAL_TEMPLATE_BOUNDARY_CHAR+
-                              info_name+
-                              MsgTemplate.OPTIONAL_TEMPLATE_BOUNDARY_CHAR,
-                              fetched_info[info_name])
+            if fetched_info[info_name] is not None:
+                piece_of_info = fetched_info[info_name]
+                if isinstance(piece_of_info, float):
+                    piece_of_info = "{:.1f}".format(piece_of_info)
+                else:
+                    piece_of_info = str(piece_of_info)
+                msg = msg.replace(MsgTemplate.TEMPLATE_BOUNDARY_CHAR + info_name +
+                                  MsgTemplate.TEMPLATE_BOUNDARY_CHAR,
+                                  piece_of_info)
+                msg = msg.replace(MsgTemplate.OPTIONAL_TEMPLATE_BOUNDARY_CHAR+
+                                  info_name+
+                                  MsgTemplate.OPTIONAL_TEMPLATE_BOUNDARY_CHAR,
+                                  piece_of_info)
         msg = re.sub(MsgTemplate.OPTIONAL_TEMPLATE_REGEX, "", msg)
         return msg
+
+class BotErrorMessage(object):
+    """
+    An instance of a class will be returned by 'fetching' actions (custom
+    actions) in case the context is incoherent or the required information can't
+    be found. If any other problem occurs, an instance of this class could also
+    be returned.
+    Such an object contains an error message which will be displayed to the user
+    instead of a normal templated utterance in case it is returned.
+    """
+    def __init__(self, error_message="An error occurred."):
+        if (   error_message is None or error_message == ""
+            or not is_str(error_message)):
+            raise ValueError("Tried to instantiate an error with a message of "+
+                             "invalid type ("+type(error_message).__name__+"): "+
+                             str(error_message)+".")
+        self.msg = error_message
+
+    def __str__(self):
+        return "<BotErrorMessage: "+self.msg+">"

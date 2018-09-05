@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from copy import deepcopy
+
 from . import config as cfg
 from .actions import Action as action, confirmation_requests as confirm, ActionAskSlotValue as ask
 
@@ -138,7 +140,7 @@ class Context(object):
 
     def __init__(self, goal):
         # (Goal) -> ()
-        self.current_goal = goal
+        self.current_goal = deepcopy(goal)
         self.expected_replies = []  # contains a list of possible replies (broad: intent categories or precise: intent names)
 
         self.intents_descriptions = cfg.get_intents_descriptions()
@@ -258,7 +260,7 @@ class Context(object):
         to the upcoming goal. Drops all pending entities.
         """
         # (str) -> ()
-        self.potential_new_goal = goal
+        self.potential_new_goal = deepcopy(goal)
         self.entity_pending_for_confirmation = None
     def new_goal_confirmed(self):
         """

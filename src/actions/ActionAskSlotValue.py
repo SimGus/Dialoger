@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from utils import *
-from .Action import ActionUtter
+from .Action import ActionUtter, BotErrorMessage
 import bot.config as cfg
 
 
@@ -21,6 +21,8 @@ class ActionAskSlotValue(ActionUtter):
 
     def generate_msg(self, fetched_info=dict()):
         # ({str: str}) -> (str)
+        if isinstance(fetched_info, BotErrorMessage):
+            return fetched_info.msg
         chosen_template = choose(self.template_msgs)  # will never return `None`
         return chosen_template.generate(self.context,
                                         {"slot-name": self.slot_description["summary"]})

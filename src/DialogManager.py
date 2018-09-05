@@ -5,7 +5,7 @@ from numpy import log2
 from copy import deepcopy
 
 from utils import *
-from . import intent_utils
+from . import bot_utils
 from .dialog_management_components import *
 from . import config as cfg
 from . import entity_checker
@@ -97,19 +97,19 @@ class DialogManager(object):
             # Confident in your understanding
             if cumulative_intent_confidence > DialogManager.EXPECTED_SOFT_THRESHOLD:
                 print("confident: "+understood_intent["name"])
-                if intent_utils.is_triggering(understood_intent["name"]):
+                if bot_utils.is_triggering(understood_intent["name"]):
                     # Change goal and formulate answer
-                    next_goal = \
-                        deepcopy(self.goals_by_trigger[understood_intent["name"]])
+                    next_goal = self.goals_by_trigger[understood_intent["name"]]
                     print("New goal: "+str(next_goal))
+                    print("GOAL'S MANDATORY SLOTS: "+str(next_goal.mandatory_slots))
                     # change the context (forget the current slot values)
                     self.context = Context(next_goal)
-                elif intent_utils.is_informing(understood_intent["name"]):
+                elif bot_utils.is_informing(understood_intent["name"]):
                     pass
-                elif intent_utils.is_confirmation_request_answer(understood_intent["name"]):
+                elif bot_utils.is_confirmation_request_answer(understood_intent["name"]):
                     if self.context.potential_new_goal is not None:
                         # User confirmed
-                        if intent_utils.is_confirming(understood_intent["name"]):
+                        if bot_utils.is_confirming(understood_intent["name"]):
                             self.context.new_goal_confirmed()
                         # User denied
                         else:
@@ -120,7 +120,7 @@ class DialogManager(object):
                             # Otherwise continue asking for info about the current goal, you certainly misunderstood
                         return self.pursue_goal()
                     else:
-                        if intent_utils.is_confirming(understood_intent["name"]):
+                        if bot_utils.is_confirming(understood_intent["name"]):
                             self.context.pending_entity_confirmed()
                         else:
                             self.context.discard_pending_entity()
@@ -141,7 +141,7 @@ class DialogManager(object):
             # Doubtful in your understanding
             elif cumulative_intent_confidence > DialogManager.EXPECTED_HARD_THRESHOLD:
                 print("doubtful")
-                if intent_utils.is_triggering(understood_intent["name"]):
+                if bot_utils.is_triggering(understood_intent["name"]):
                     print("potential new goal")
                     self.context.set_potential_new_goal(
                         self.goals_by_trigger[understood_intent["name"]]
@@ -152,7 +152,7 @@ class DialogManager(object):
                                                     self.context
                                                 )
                     return [confirmation_utterance]
-                elif intent_utils.is_informing(understood_intent["name"]):
+                elif bot_utils.is_informing(understood_intent["name"]):
                     # Consider you understood well
                     print("not sure but ok")
                     slot_confirmation_request_action = \
@@ -160,11 +160,11 @@ class DialogManager(object):
                     if slot_confirmation_request_action is not None:
                         return [slot_confirmation_request_action]
                     return self.pursue_goal()
-                elif intent_utils.is_confirmation_request_answer(understood_intent["name"]):
+                elif bot_utils.is_confirmation_request_answer(understood_intent["name"]):
                     # Consider you understood well
                     if self.context.potential_new_goal is not None:
                         # User confirmed
-                        if intent_utils.is_confirming(understood_intent["name"]):
+                        if bot_utils.is_confirming(understood_intent["name"]):
                             self.context.new_goal_confirmed()
                         # User denied
                         else:
@@ -174,7 +174,7 @@ class DialogManager(object):
                             # Otherwise continue asking for info about the current goal, you certainly misunderstood
                         return self.pursue_goal()
                     else:
-                        if intent_utils.is_confirming(understood_intent["name"]):
+                        if bot_utils.is_confirming(understood_intent["name"]):
                             self.context.pending_entity_confirmed()
                         else:
                             self.context.discard_pending_entity()
@@ -191,7 +191,7 @@ class DialogManager(object):
             print("unexpected")
             # Confident in your understanding
             if cumulative_intent_confidence > DialogManager.UNEXPECTED_SOFT_THRESHOLD:
-                if intent_utils.is_triggering(understood_intent["name"]):
+                if bot_utils.is_triggering(understood_intent["name"]):
                     print("potential new goal")
                     self.context.set_potential_new_goal(
                         self.goals_by_trigger[understood_intent["name"]]
@@ -211,7 +211,7 @@ class DialogManager(object):
                                                     self.context
                                                 )
                     return [confirmation_utterance]
-                elif intent_utils.is_informing(understood_intent["name"]):
+                elif bot_utils.is_informing(understood_intent["name"]):
                     # Consider you understood well
                     print("not sure but ok")
                     slot_confirmation_request_action = \
@@ -244,7 +244,7 @@ class DialogManager(object):
         lacking_slot_name = self.context.get_lacking_slot_names()
         if lacking_slot_name is None:  # All mandatory slots are filled
             actions = [self.action_factory.new_action(action_name,
-                       deepcopy(self.context))
+                                                      deepcopy(self.context))
                        for action_name in self.context.current_goal.actions]
             # Check if some slots need to be promoted from 'optional' to 'mandatory'
             promotion_happened = False
