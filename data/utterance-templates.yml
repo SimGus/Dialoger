@@ -8,14 +8,19 @@ utter-how-can-I-help:
   - "What can I assist you with?"
 
 ask-start-over:
-  - "I am really sorry I <b>couldn't understand</b>. Let's <b>start this conversation over</b>, shall we?"
-  - "Excuse me, I'm afraid we will have to <b>start again from the beginning</b>...<br/>How may I help you?"
-  - "I still <b>did not understand</b>, sorry. Let's <b>start over from the beginning<b>...<br/>How can I help?"
+  - "I am really sorry I <b>couldn't understand</b>.
+     Let's <b>start this conversation over</b>, shall we?"
+  - "Excuse me, I'm afraid we will have to <b>start again from the beginning</b>...
+
+     How may I help you?"
+  - "I still <b>did not understand</b>, sorry.
+     Let's <b>start over from the beginning<b>...<br/>How can I help?"
 
 ask-rephrase:
   - "I'm sorry, I <b>didn't understand</b> that. Could you <b>rephrase</b>?"
   - "Excuse me, I <b>didn't get that</b>. Would you mind <b>rephrasing</b>?"
-  - "I'm afraid I <b>didn't understand</b>, sorry. Could you ask that <b>in other words</b>?"
+  - "I'm afraid I <b>didn't understand</b>, sorry.
+     Could you ask that <b>in other words</b>?"
 
 ask-confirm-intent:
   - "Did you say you wanted to <b>|intent-summary|</b>?"
@@ -23,7 +28,8 @@ ask-confirm-intent:
   - "Can you confirm me that you want to <b>|intent-summary|</b>?"
 
 ask-confirm-slot-value:
-  - "Could you <b>confirm</b> that you are talking about the |slot-summary| <b>|slot-value|</b>?"
+  - "Could you <b>confirm</b> that you are talking
+     about the |slot-summary| <b>|slot-value|</b>?"
   - "I'm not sure, did you say the |slot-summary| was <b>|slot-value|</b>?"
   - "I'm not certain I understood, is the |slot-summary| <b>|slot-value|</b>?"
 
@@ -34,18 +40,48 @@ ask-slot-value:
 
 #=============== Case-specific utterances =======================
 utter-machine-planning-description:
-  - "The <b>planning</b> for production line <b>|production_line|~line_number~</b> is |planning|."
-  - "Okay, here is the <b>planning</b> of the production line <b>|production_line|~line_number~</b>: |planning|."
-  - "Here is the <b>planning</b> for the <b>|production_line|~line_number~</b> production line: |planning|."
+  - "Production line <b>|production_line|~line_number~</b> is used
+     <b>|number-buckets-of-use| time buckets out of |total-number-buckets|</b>,
+     making it used <b>|utilization-percentage|% of the time</b>.
+
+     You can get more information on the 'flow results' screen."
+  - "Okay, production line <b>|production_line|~line_number~</b> is used
+     <b>|utilization-percentage|% of the time</b>, during
+     <b>|number-buckets-of-use|/|total-number-buckets| time buckets</b>.
+
+     More information is available on the 'flow results' screen."
+  - "Alright, here is the planning of the production line called
+     <b>|production_line|~line_number~</b>: it is used
+     <b>|number-buckets-of-use| time buckets out of |total-number-buckets|</b>,
+     for a total of <b>|utilization-percentage|% of utilization over time</b>.
+
+     More information is displayed on the 'flow results' screen."
 
 utter-list-orders-time:
-  - "Here is a list of the <b>orders</b> that will be <b>|filter_time|</b>: |order-list|."
-  - "Alright, here are the <b>orders</b> that are scheduled <b>|filter_time|</b>: |order-list|."
+  - "<b>|number-filtered-orders|</b> orders out of <b>|total-number-orders|</b>
+     orders will be <b>|filter_time|</b>. ~orders-list~
+
+     Note that <b>|number-forbidden-orders|</b> orders that won't be completed
+     are actually forbidden (i.e. <b>|percentage-late-orders-forbidden|% of
+     the unplanned orders</b>)."
+  - "Alright, there will be
+     <b>|number-filtered-orders|/|total-number-orders|</b> orders that will be
+     <b>|filter_time|</b>. ~orders-list~
+
+     Beware that <b>|number-forbidden-orders|
+     (|percentage-late-orders-forbidden|%)</b>
+     of the unplanned orders are actually forbidden."
 
 utter-list-orders-completion:
-  - "Here is a list of the <b>orders</b> that will be completed at <b>|filter_completion|%</b>: |order-list|."
-  - "Alright, here are the <b>orders</b> which are planned at <b>|filter_completion|%</b>: |order-list|."
+  - "Here is a list of the <b>orders</b> that will be completed at
+     <b>|filter_completion|%</b>: |order-list|."
+  - "Alright, here are the <b>orders</b> which are planned at
+     <b>|filter_completion|%</b>: |order-list|."
 
 utter-machine-utilization-explanation:
-  - "The production line <b>|production_line|~line_number~</b> is used at <b>|utilization|%</b> of its capacity because |machine-utilization-explanation|"
-  - "Okay, the production line <b>|production_line|~line_number~</b> is used at <b>|utilization|%</b> of its capacity because |machine-utilization-explanation|"
+  - "The production line <b>|production_line|~line_number~</b> is
+     ~precision-adverb~ used at <b>|fetched-utilization|%</b> of its capacity
+     |machine-utilization-explanation|."
+  - "Okay, the production line <b>|production_line|~line_number~</b> is
+     ~precision-adverb~ used at <b>|fetched-utilization|%</b> of its capacity
+     |machine-utilization-explanation|."
