@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 def mean(a, b):
-    return float(a)+float(b)/2.0
+    return (float(a)+float(b))/2.0
 
 def choose(list):
     """Same as `random.choice(list)` but doesn't throw an error if list is empty"""
